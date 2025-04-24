@@ -1,0 +1,302 @@
+@import "https://js.arcgis.com/calcite-components/3.0.3/calcite.css";
+@import "https://js.arcgis.com/4.32/@arcgis/core/assets/esri/themes/dark/main.css";
+@import "https://js.arcgis.com/map-components/4.32/arcgis-map-components.css";
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+#mainViewDiv {
+  padding: 0;
+  margin: 0;
+  height: 100vh;
+  aspect-ratio: 16 / 9;
+  position: relative;
+  overflow: hidden;
+}
+
+#customAttributionContainer {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  padding: 5px;
+  background-color: rgba(198, 10, 10, 0.8);
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.esri-ui-inner-container {
+  inset: auto !important;
+  /* Add additional positioning properties */
+  left: 5px !important;
+  top: 10px !important;
+  right: 5px !important;
+  bottom: 8px !important;
+}
+
+.esri-ui-bottom-left {
+  transition: transform 0.3s ease-in-out; /* Smooth transition */
+}
+
+.esri-widget {
+  line-height: 1em;
+}
+
+.esri-scale-bar__line {
+  height: 1.5vh;
+}
+
+.esri-scale-bar__label {
+  font-size: 9px;
+}
+
+.esri-scale-bar__line--top {
+  bottom: -0.5px !important;
+  border-bottom-width: 1px !important;
+  border-bottom-style: solid !important;
+  border-bottom-color: rgb(50,50,50) !important;
+}
+
+.esri-scale-bar__line--bottom {
+  top: -0.5px !important;
+  border-top-width: 1px !important;
+  border-top-style: solid !important;
+  border-top-color: rgb(50,50,50)  !important;
+}
+
+.esri-scale-bar__line--top:before {
+  height: 100%;
+  bottom: 0px;
+  width: 1px;
+  border-right-width: 1px;
+  border-right-style: solid;
+  border-right-color: rgb(50,50,50);
+}
+.esri-scale-bar__line--top:after {
+  height: 100%;
+  bottom: 0px;
+  width: 1px;
+  border-right-width: 1px;
+  border-right-style: solid;
+  border-right-color: rgb(50,50,50); 
+}
+.esri-scale-bar__line--bottom:before {
+  height: 100%;
+  width: 1px;
+  border-right-width: 1px;
+  border-right-style: solid;
+  border-right-color: rgb(50,50,50);
+  top: -1px; 
+}
+.esri-scale-bar__line--bottom:after {
+  height: 100%;
+  width: 1px;
+  border-right-width: 1px;
+  border-right-style: solid;
+  border-right-color: rgb(50,50,50);
+  top: -1px; 
+}
+
+.esri-scale-bar__line {
+  background-color: rgba(255, 255, 255, 0);
+}
+
+.calcite-shell-panel {
+  transition: transform 0.3s ease-in-out;
+}
+
+#drawer-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  aspect-ratio: 8 / 9;
+  background-color: white;
+  box-shadow: 2px 0 5px rgba(0, 0, 0, 0.3);
+  transition: transform 0.3s ease-in-out;
+  transform: translateX(-100%); /* Initially hidden */
+}
+
+/* Drawer iframe */
+#drawer-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Drawer is visible when open */
+#drawer-container.drawer-open {
+  transform: translateX(0) !important; /* Slide into view */
+}
+
+/* Drawer is hidden by default */
+#drawer-container.drawer-closed {
+  transform: translateX(-100%) !important; /* Hidden off-screen */
+}
+
+#drawer-container.drawer-open #drawer-toggle {
+    right: -60px; /* Adjust position when drawer is open */
+}
+
+#drawer-toggle {
+  position: absolute;
+  top: 62%; /* Adjust as needed */
+  right: -60px; /* Place outside the drawer */
+  width: 60px;
+  height: 30%;
+  background-color: hex(0xEBEBEB);
+  color: black;
+  border: none;
+  border-radius: 0px 5px 5px 0px; /* Rounded corners */
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+  transition: right 0.3s ease-in-out; /* Smooth transition */
+}
+
+.esri-view-user-storage {
+display: flex;
+position: absolute;
+justify-content: flex-end; /* Align text to the right */
+align-items: flex-start; /* Align text to the top */
+}
+
+#akViewDiv {
+  padding: 0;
+  margin: 0;
+  height: 42%;
+  width: 100%;
+  border-right: solid;
+  border-bottom: solid;
+  border-width: 1px;
+  border-color: gray;
+  background-color: rgba(25, 250, 250, 0);
+}
+
+.esri-view-user-storage #akText {   
+justify-self: flex-end; /* Align text to the right */
+align-items: flex-start; /* Align text to the top */
+padding: 5px; /* Add some padding for spacing */
+color: black; /* Set text color */
+font-size: 12px; /* Adjust font size as needed */
+font-weight: bold; /* Make text bold */
+}
+
+#overViewDiv {
+  padding: 0;
+  margin: 0;
+  height: 37%;
+  width: 100%;
+  border-right: solid;
+  border-bottom: solid;
+  border-width: 1px;
+  border-color: gray;
+  background-color: rgba(25, 250, 250, 0);
+  z-index: 0;
+}
+
+#insetContainer{
+  display: flex;
+  margin: 0;
+  padding: 0;
+  height: 21%;
+  width: 100%;
+  border-right: solid;
+  border-width: 1px;
+  border-color: gray;
+  background-color: rgba(25, 250, 250, 0);
+}
+
+#guViewDiv {
+  padding: 0;
+  margin: 0;
+  height: 100%;
+  width: 100%;
+  border-right: solid;
+  border-width: 1px;
+  border-color: grey;
+  background-color: rgba(25, 250, 250, 0);
+}
+
+#cnmiText {
+position: relative; /* Ensure positioning context */
+display: flex;
+justify-content: flex-end; /* Align text to the right */
+align-items: flex-start; /* Align text to the top */
+padding: 5px; /* Add some padding for spacing */
+color: black; /* Set text color */
+font-size: 12px; /* Adjust font size as needed */
+font-weight: bold; /* Make text bold */
+}
+
+#guText {
+position: absolute; /* Ensure positioning context */
+top: 0;
+left: 0;
+height: 100%;
+width: 100%;
+z-index: 1;
+display: flex;
+justify-content: flex-end; /* Align text to the right */
+align-items: flex-end; /* Align text to the bottom */
+padding: 5px; /* Add some padding for spacing */
+color: black; /* Set text color */
+font-size: 12px; /* Adjust font size as needed */
+font-weight: bold; /* Make text bold */
+}
+
+#asViewDiv {
+  padding: 0;
+  margin: 0;
+  height: 100%;
+  width: 100%;
+  border-right: solid;
+  border-width: 1px;
+  border-color: grey;
+  background-color: rgba(25, 250, 250, 0);
+}
+
+#asText {   
+position: relative; /* Ensure positioning context */
+display: flex;
+justify-content: flex-end; /* Align text to the right */
+align-items: flex-start; /* Align text to the top */
+padding: 5px; /* Add some padding for spacing */
+color: black; /* Set text color */
+font-size: 12px; /* Adjust font size as needed */
+font-weight: bold; /* Make text bold */
+}
+
+#hiViewDiv {
+  padding: 0;
+  margin: 0;
+  height: 100%;
+  width: 100%;
+  background-color: rgba(25, 250, 250, 0);
+  z-index: 0;
+}
+
+#hiText {   
+position: relative; /* Ensure positioning context */
+display: flex;
+justify-content: flex-end; /* Align text to the right */
+align-items: flex-start; /* Align text to the top */
+padding: 5px; /* Add some padding for spacing */
+color: black; /* Set text color */
+font-size: 12px; /* Adjust font size as needed */
+font-weight: bold; /* Make text bold */
+}
+
+#prViewDiv {
+padding: 0;
+margin: 0;
+left: 70%;
+height: 10%;
+width: 20%;
+border-style: solid !important;
+border-width: 1px !important;
+border-color: grey !important;
+background-color: rgba(250, 250, 250, 0);
+}
