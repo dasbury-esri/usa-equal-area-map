@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>US Equal Area Map View with Overview</title>
+   </head>
+
+  <body>
+    <div id="mainViewDiv">
+      <div id="mainScale">Scale 1: <span id="mainViewScaleValue"></span></div>
+      <!--<div id="customAttributionContainer"><span id="customAttributionText"></span></div>-->
+    </div>
+    <!-- Drawer container -->
+    <div id="drawer-container" class="drawer-closed">
+      <button id="drawer-toggle">
+        <div id="drawer-thumbnails" class="drawer-content">
+          <img src="/src/images/Alaska.png" alt="Alaska">
+          <img src="/src/images/Hawaii.png" alt="Hawaii">
+          <img src="/src/images/Guam.png" alt="Guam/CNMI">
+          <img src="/src/images/AmSamoa.png" alt="American Samoa">
+        </div>
+      </button>
+      <iframe src="drawer.html" id="drawer-iframe" title="Drawer Content"></iframe>
+    </div>
+    <script src="/src/drawer.js"></script>
+    <script type="module" src="/src/main.js"></script>
+ </body>
+</html>

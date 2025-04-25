@@ -1,0 +1,35 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "pwa-chrome", // Use "pwa-msedge" for Edge
+            "request": "launch",
+            "name": "Launch Chrome with Vite",
+            "url": "http://localhost:3000", // Replace with your Vite dev server URL
+            "webRoot": "${workspaceFolder}",
+            "sourceMaps": true,
+            "trace": true,
+            "skipFiles": ["<node_internals>/**"]
+          },
+          {
+            "type": "pwa-chrome", // Use "pwa-msedge" for Edge
+            "request": "attach",
+            "name": "Attach to Chrome",
+            "port": 9222,
+            "webRoot": "${workspaceFolder}",
+            "sourceMaps": true,
+            "trace": true,
+            "skipFiles": ["<node_internals>/**"]
+          },
+        {
+            "type": "chrome",
+            "request": "launch",
+            "name": "Launch Chrome against localhost",
+            "url": "http://localhost:8080",
+            "webRoot": "${workspaceFolder}"
+        }
+    ]
+}

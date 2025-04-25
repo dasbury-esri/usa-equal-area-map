@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>US Inset Views with overview</title>
+   </head>
+
+  <body>
+    <div id="akViewDiv">
+        <div id="akText">Alaska</div>
+      <!--  <div id="akScale">Scale: 1: <span id="akScaleValue"></span></div>-->
+      </div>
+      <div id="overViewDiv">
+      <div id="overViewScale">Scale: 1: <span id="overViewScaleValue"></span></div>
+      </div>  
+      <div id="insetContainer">
+          <div id="guViewDiv">
+            <div id="cnmiText">Northern<br>Mariana<br>Is.</div>
+            <div id="guText">Guam</div>
+          </div>
+          <div id="asViewDiv">
+            <div id="asText">American<br>Samoa</div>
+          </div>
+          <div id="hiViewDiv">
+            <div id="hiText">Hawaii</div>
+          </div>
+      </div>
+      <script type="module" src="/src/main.js"></script>
+      <script>
+        window.addEventListener("storage", (event) => {
+          if (event.key === "mainViewScale") {
+            const scale = parseFloat(event.newValue);
+            console.log("Updating akView scale from localStorage:", scale);
+            akView.set({ scale });
+          }
+        });
+      </script>
+    </body>

@@ -12,6 +12,7 @@
         "Precip",
         "PRIMEM",
         "PROJCS",
+        "topo",
         "VIIRS",
         "wkid"
     ]
