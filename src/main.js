@@ -5,7 +5,8 @@ import FeatureLayer from "@arcgis/core/layers/FeatureLayer.js";
 //import WFSLayer from "@arcgis/core/layers/WFSLayer.js";
 //import ImageryLayer from "@arcgis/core/layers/ImageryLayer.js";
 import Point from "@arcgis/core/geometry/Point.js";
-import * as Projection from "@arcgis/core/geometry/projection.js";
+import * as projectOperator from "@arcgis/core/geometry/operators/projectOperator.js";
+//import * as Projection from "@arcgis/core/geometry/projection.js";
 import SpatialReference from "@arcgis/core/geometry/SpatialReference.js";
 import ScaleBar from "@arcgis/core/widgets/ScaleBar.js";
 //import Compass from "@arcgis/core/widgets/Compass.js";
@@ -15,8 +16,14 @@ import * as promiseUtils from "@arcgis/core/core/promiseUtils.js";
 import "./style.css";
 
 const App =  () => {
-
-Projection.load().then(function() {
+    projectOperator.load().then(() => {
+        if (projectOperator.isLoaded()) {
+            console.log("projectOperator is loaded");
+            // Add your projection parameters or logic here
+        } else {
+            console.error("Failed to load projectOperator");
+        }
+ {
     //Projection parameters              
     {
     // Lambert Equal Area Projection for continental US
@@ -57,12 +64,12 @@ Projection.load().then(function() {
         //id:"f097586198b94149965206a8f2471dbf" // USA Territorial Sea Boundary (requires subscriber token)
         //id:"0ddda259c5c443cc9c5927132644b961" // NOAA Maritime Boundaries (Map Service) 
         //id:"e2e7bcb7fdaf41f2a97b5f540e0d5433" // 117th Congressional Districts
-        //id: "6100fd30484645e6b3ec7006d95aa7b8" // 119th Congressional Districts
+        id: "6100fd30484645e6b3ec7006d95aa7b8" // 119th Congressional Districts
         //id: "2706fbe2d7c74b488a609938df8f9578" // USA Airport Areas (Esri Data and Maps)
         //id:"dd834ef507244f96baa6b29eab5dd396" // 2019 Population density
         //id: "67ab7f7c535c4687b6518e6d2343e8a2" // Ocean basemap
         //id: "055f54c736c44955a2f2e808df5280b1" // National Water Model Maximum Flow (10 Day Forecast)
-        id: "6ec4f16b6f334cedab28bb7c585ff410" // Environmental Justice Grants (Public Environmental Data Partners)
+        //id: "6ec4f16b6f334cedab28bb7c585ff410" // Environmental Justice Grants (Public Environmental Data Partners)
       },
       sharedViews: true,
     });
@@ -814,7 +821,13 @@ Projection.load().then(function() {
           hiView.set({ scale });
         }
       });
+};
+}).catch((error) => {
+    console.error("Error loading projectOperator:", error);
 });
 }
 export default App;
-App();
+
+document.addEventListener("DOMContentLoaded", () => {
+    App(); // Ensure the App function runs after the DOM is loaded
+});
