@@ -1,5 +1,4 @@
-import * as THREE from "three";
-import { geoEquirectangular, geoPath } from "d3-geo";
+import { geoOrthographic, geoPath } from "d3-geo";
 import land from "world-atlas/land-110m.json";
 import { feature } from "topojson-client";
 import * as reactiveUtils from "@arcgis/core/core/reactiveUtils.js";
@@ -7,35 +6,7 @@ import * as projectOperator from "@arcgis/core/geometry/operators/projectOperato
 import SpatialReference from "@arcgis/core/geometry/SpatialReference.js";
 
 const geographic = new SpatialReference({ wkid: 4326 });
-let globeTexture;
-
-function texture() {
-  if (globeTexture) return globeTexture;
-  const canvas = document.createElement("canvas");
-  canvas.width = 1024;
-  canvas.height = 512;
-  const context = canvas.getContext("2d");
-  context.fillStyle = "#e3eef0";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  const projection = geoEquirectangular().scale(1024 / (2 * Math.PI)).translate([512, 256]);
-  context.beginPath();
-  geoPath(projection, context)(feature(land, land.objects.land));
-  context.fillStyle = "#81968b";
-  context.fill();
-  globeTexture = new THREE.CanvasTexture(canvas);
-  globeTexture.colorSpace = THREE.SRGBColorSpace;
-  return globeTexture;
-}
-
-function position(longitude, latitude, radius = 1) {
-  const longitudeRadians = THREE.MathUtils.degToRad(longitude);
-  const latitudeRadians = THREE.MathUtils.degToRad(latitude);
-  return new THREE.Vector3(
-    Math.cos(latitudeRadians) * Math.cos(longitudeRadians),
-    Math.sin(latitudeRadians),
-    -Math.cos(latitudeRadians) * Math.sin(longitudeRadians)
-  ).multiplyScalar(radius);
-}
+const landGeometry = feature(land, land.objects.land);
 
 export function addLocatorGlobe(view, label, homeCenter) {
   const host = document.createElement("div");
@@ -44,55 +15,48 @@ export function addLocatorGlobe(view, label, homeCenter) {
   host.setAttribute("aria-label", `${label} location on the globe`);
   host.title = `${label} location`;
   view.container.append(host);
-  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  host.append(renderer.domElement);
-  const scene = new THREE.Scene();
-  const camera = new THREE.OrthographicCamera(-1.1, 1.1, 1.1, -1.1, 0.1, 10);
-  const globe = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 64, 32),
-    new THREE.MeshBasicMaterial({ map: texture() })
-  );
-  scene.add(globe);
-  const footprint = new THREE.LineSegments(
-    new THREE.BufferGeometry(),
-    new THREE.LineBasicMaterial({ color: "#b53739" })
-  );
-  scene.add(footprint);
-  const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.035, 12, 8),
-    new THREE.MeshBasicMaterial({ color: "#b53739" })
-  );
-  scene.add(marker);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  const pixelRatio = Math.min(window.devicePixelRatio, 2);
+  const projection = geoOrthographic().clipAngle(90);
+  const path = geoPath(projection, context);
+  host.append(canvas);
   const render = () => {
+    if (!view.center || view.destroyed) return;
     const center = projectOperator.execute(view.center, geographic);
     if (!center) return;
-    camera.position.copy(position(center.x, center.y, 3));
-    camera.lookAt(0, 0, 0);
-    marker.position.copy(position(center.x, center.y, 1.02));
+    const size = canvas.width / pixelRatio;
+    context.clearRect(0, 0, size, size);
+    projection.rotate([-center.x, -center.y]).translate([size / 2, size / 2]).scale(size / 2.2);
+    context.beginPath();
+    path({ type: "Sphere" });
+    context.fillStyle = "#e3eef0";
+    context.fill();
+    context.beginPath();
+    path(landGeometry);
+    context.fillStyle = "#81968b";
+    context.fill();
     const visibleArea = view.visibleArea && projectOperator.execute(view.visibleArea, geographic);
-    const vertices = [];
-    for (const ring of visibleArea?.rings ?? []) {
-      for (let index = 1; index < ring.length; index++) {
-        const start = position(...ring[index - 1]);
-        const end = position(...ring[index]);
-        for (let segment = 0; segment < 16; segment++) {
-          vertices.push(...start.clone().lerp(end, segment / 16).normalize().multiplyScalar(1.012).toArray());
-          vertices.push(...start.clone().lerp(end, (segment + 1) / 16).normalize().multiplyScalar(1.012).toArray());
-        }
-      }
-    }
-    footprint.geometry.dispose();
-    footprint.geometry = new THREE.BufferGeometry();
-    footprint.geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
-    renderer.render(scene, camera);
+    context.beginPath();
+    path({ type: "MultiLineString", coordinates: visibleArea?.rings ?? [] });
+    context.strokeStyle = "#b53739";
+    context.lineWidth = 1;
+    context.stroke();
+    context.beginPath();
+    context.arc(size / 2, size / 2, size / 2.2 * 0.035, 0, 2 * Math.PI);
+    context.fillStyle = "#b53739";
+    context.fill();
   };
   const resize = () => {
     const size = view.width < 180 ? 44 : 68;
     view.container.classList.toggle("compact-inset", Boolean(homeCenter) && view.width < 180);
     host.style.width = `${size}px`;
     host.style.height = `${size}px`;
-    renderer.setSize(size, size);
+    canvas.width = Math.round(size * pixelRatio);
+    canvas.height = Math.round(size * pixelRatio);
+    canvas.style.width = `${size}px`;
+    canvas.style.height = `${size}px`;
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     render();
   };
   const observer = new ResizeObserver(resize);
@@ -133,13 +97,6 @@ export function addLocatorGlobe(view, label, homeCenter) {
     observer.disconnect();
     handle.remove();
     if (button) view.ui.remove(button);
-    globe.geometry.dispose();
-    globe.material.dispose();
-    footprint.geometry.dispose();
-    footprint.material.dispose();
-    marker.geometry.dispose();
-    marker.material.dispose();
-    renderer.dispose();
     host.remove();
     view.container?.classList.remove("compact-inset");
   } });
