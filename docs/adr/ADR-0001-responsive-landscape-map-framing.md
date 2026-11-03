@@ -3,7 +3,7 @@
 - Status: Proposed / provisional
 - Recorded: 2026-11-03 12:43:24-08:00[America/Los_Angeles]
 - Scope: Initial composition of CONUS and regional inset maps
-- Implementation: Responsive framing is the local default; not published
+- Implementation: Responsive framing is the published default (commit f7503c3)
 
 ## Context
 
@@ -302,7 +302,13 @@ screenshots were inspected. Exact numeric checks reproduce the active Albers
 Alaska extent and overview center/resolution/rotation. Editor diagnostics and
 the production build passed. Old fixed-24M/airport-following normal-mode checks
 are superseded by this default behavior, not claimed as passing regressions.
-The large-bundle warning remains. No publication occurred.
+The large-bundle warning remains. Published runtime commit
+`f7503c35a6d922fc735f6ca551034248a7adb6b9` passed Pages
+[run 41738654420](https://github.com/dasbury-esri/usa-equal-area-map/actions/runs/41738654420).
+Public 1920x1080 smoke checks passed all four projection/layout modes, including
+saved centers, scale links, reset/recenter, loaded current layers and globe pixels.
+Both deployed HTML entry points match the verified build. Public smoke coverage
+is narrower than the local 16-case geometry matrix described above.
 
 ## Owner-Adjusted References
 

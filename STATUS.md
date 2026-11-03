@@ -26,7 +26,21 @@ that same server. Do not serve copied source snapshots for ongoing work.
 
 The temporary port-5174 server is stopped. Continue editing this repository,
 including [src/main.js](src/main.js); publish only after owner review and
-explicit approval. The production site has not been changed.
+explicit approval. The approved release below is now live; subsequent local
+edits still require a separately approved production push.
+
+## Published Release
+
+- Runtime commit: `f7503c35a6d922fc735f6ca551034248a7adb6b9`.
+- Pages deployment succeeded at 2026-11-03 15:23:46-08:00[America/Los_Angeles]
+  in [run 41738654420](https://github.com/dasbury-esri/usa-equal-area-map/actions/runs/41738654420).
+- [Production](https://dasbury-esri.github.io/usa-equal-area-map/) and
+  [Albers](https://dasbury-esri.github.io/usa-equal-area-map/?projection=albers)
+  now use responsive framing without an opt-in parameter.
+- Public default/Albers/standard/globe smoke checks passed at 1920x1080,
+  including saved centers, scale linking, reset/recenter and globe pixels.
+  Both HTML entry points match the verified build byte-for-byte. The current
+  background and state layers load successfully. See the session log for scope.
 
 ## Current state
 
@@ -43,8 +57,9 @@ recentring preserves zoom. ArcGIS popup initialization and scale watchers now
 follow the installed SDK's lazy-popup and reactive APIs.
 
 Build and native browser checks verified drawer toggling, inset rendering,
-two-way scale changes and a narrow-screen layout. Existing background and
-state-boundary layers reported remote loading errors and remain unresolved.
+two-way scale changes and a narrow-screen layout. The earlier background and
+state-boundary item failures were superseded by the owner's replacement items;
+both current layers loaded in the production smoke checks.
 Dependency review was left pending in that repair; this session adds the
 globe-rendering dependencies described below without resolving the audit. The owner's
 tracking fields and exact next action above are preserved. See
@@ -65,8 +80,7 @@ so changing projection does not reinterpret Lambert meters as Albers meters.
 Native browser checks and the production build passed for both projections.
 The owner's current Albers Alaska meridian is -146 and the overview meridian
 is -140 in both projections. Their regional cartographic suitability has not
-been fully audited. This option
-is not yet committed or published.
+been fully audited. This option is included in the published release above.
 
 Responsive framing is now the default, with no `framing=preview` flag required.
 The plain URL remains Lambert; `?projection=albers` selects Albers, and either
@@ -197,7 +211,7 @@ filter. The layer is present in both layouts, including the original overview.
   Alaska reference and independent -140 overview presets were captured and
   validated; a 0.2% Lambert overview allowance preserves its northern coverage.
   Owner layer changes are preserved.
-  Nothing has been committed or published.
+  The approved implementation is committed and published as the release above.
 - Portrait/mobile-portrait rendering, screenshots, and layout optimization
   are not required checks or release gates. Revisit only when the owner
   explicitly brings that work back into scope.
