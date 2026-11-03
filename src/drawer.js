@@ -46,3 +46,28 @@ if (toggleButton && drawerContainer && drawerFrame) {
   });
   new ResizeObserver(updatePosition).observe(drawerContainer);
 }
+
+const prDrawer = document.getElementById("pr-drawer");
+const prToggle = document.getElementById("pr-drawer-toggle");
+const prContainer = document.getElementById("prViewDiv");
+
+if (prDrawer && prToggle && prContainer) {
+  const setOpen = (isOpen) => {
+    if (!isOpen && prContainer.contains(document.activeElement)) prToggle.focus();
+    prDrawer.classList.toggle("drawer-open", isOpen);
+    prContainer.inert = !isOpen;
+    prToggle.setAttribute("aria-expanded", String(isOpen));
+    const label = `${isOpen ? "Hide" : "Show"} Puerto Rico and US Virgin Islands`;
+    prToggle.setAttribute("aria-label", label);
+    prToggle.title = label;
+  };
+  prToggle.addEventListener("click", () => {
+    setOpen(!prDrawer.classList.contains("drawer-open"));
+  });
+  prDrawer.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && prDrawer.classList.contains("drawer-open")) {
+      setOpen(false);
+      prToggle.focus();
+    }
+  });
+}

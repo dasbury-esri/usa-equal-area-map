@@ -23,6 +23,17 @@
       </button>
       <iframe src="drawer.html" id="drawer-iframe" title="Drawer Content"></iframe>
     </div>
+    <section id="pr-drawer" aria-label="Puerto Rico and US Virgin Islands">
+      <button id="pr-drawer-toggle" type="button" aria-controls="prViewDiv"
+        aria-expanded="false" aria-label="Show Puerto Rico and US Virgin Islands"
+        title="Show Puerto Rico and US Virgin Islands">
+        <span class="esri-icon-left-triangle-arrow" aria-hidden="true"></span>
+        <span aria-hidden="true">PR<br>USVI</span>
+      </button>
+      <div id="prViewDiv" inert>
+        <div id="prText">Puerto Rico and the US Virgin Is.</div>
+      </div>
+    </section>
     <script type="module" src="/src/drawer.js"></script>
     <script type="module" src="/src/main.js"></script>
  </body>

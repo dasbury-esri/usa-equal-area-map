@@ -6,6 +6,12 @@ export default {
     scale: 24000000,
     rotation: 0,
   },
+  puertoRico: {
+    center: { x: -65.5, y: 18, spatialReference: { wkid: 4326 } },
+    zoomAnchor: { x: -66.001801, y: 18.4394 },
+    scale: 24000000,
+    rotation: 0,
+  },
   alaska: {
     center: { x: -513569.52947235963, y: -168799.1960861853 },
     zoomAnchor: { x: -149.99359483892403, y: 61.17632281125704 },

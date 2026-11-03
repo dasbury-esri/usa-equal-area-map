@@ -65,7 +65,7 @@ The non-globe overview now has dynamic leader lines from each island panel's
 quarter-width top-edge anchor to its displayed extent rectangle's east-edge
 midpoint. They follow extent changes, overview navigation, and resizing;
 offscreen attachment points hide their lines. The overlays do not intercept
-map input or change the existing overview navigation behavior.
+map input.
 
 The globe trial now shows numeric scale ratios beside each inset name. A
 trial-only width constraint was compressing distance bars without changing
@@ -79,9 +79,28 @@ to Anchorage, Honolulu, Pago Pago, and Guam airport-area centers by
 1:1000000. Earlier city anchors were superseded. The latest manual-pan change
 tracks a separate user-selected center per inset and is intended to preserve
 it on subsequent zooms; reload or a trial recenter button restores automatic
-following. **Native pan-then-zoom validation is incomplete.** Preserve this
+following. **Native pan-then-zoom validation for those four insets is incomplete.** Preserve this
 as a work-in-progress checkpoint, not a fully verified navigation fix. See
 the session log for the remaining drag-event investigation and test gaps.
+
+PR/USVI now uses the same zoom-anchor helper, retaining its original starting
+center and scale and reaching Luis Munoz Marin International Airport (SJU) by
+1:1000000. A native landscape browser test verified a real PR drag followed
+by CONUS-driven zoom and local wheel zoom with no center drift. The other
+four airport anchors also passed regression checks; this does not certify
+their previously incomplete manual-pan, keyboard, or touch cases.
+
+The PR/USVI drawer now extends from the standard island-row top (79%) to the
+viewport bottom in both layouts. The globe preview adds a PR/USVI locator
+globe and current-scale recenter control, and places the CONUS globe above
+the closed right-hand tab. Landscape geometry, globe pixels/movement, and
+recenter checks passed at 1024x600, 1280x800, and 1920x1080.
+
+The overview receives PR/USVI extent geometry from the parent page through
+origin/source-checked messages, with a ready handshake for iframe reloads.
+It now has four extent rectangles, retaining the three existing leader lines
+and no PR leader. Rectangle updates no longer automatically navigate the
+overview; its current extent is preserved through linked pan/zoom updates.
 
 The requested World Countries context item
 `42430a34a2b44c0da678ce60ce20dd31` now sits beneath congressional
@@ -102,6 +121,18 @@ filter. The layer is present in both layouts, including the original overview.
 - [x] Established the owner-requested tracking fields.
 - [x] Repaired drawer initialization, iframe packaging and scale synchronization.
 - [x] Checked the development and production builds in a native browser.
+
+## Layout Validation Scope
+
+- Current design and acceptance focus on landscape windows at different
+  resolutions, including compact landscape windows.
+- Portrait/mobile-portrait rendering, screenshots, and layout optimization
+  are not required checks or release gates. Revisit only when the owner
+  explicitly brings that work back into scope.
+- Use landscape viewports such as 1024x600, 1280x800, and 1920x1080 for drawer
+  placement, map framing, linked scales, labels, and control checks.
+- Earlier portrait results in session logs are historical observations, not
+  continuing requirements. General accessibility and resizing still apply.
 
 ## Next
 

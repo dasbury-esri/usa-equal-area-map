@@ -5,6 +5,7 @@ import FeatureLayer from "@arcgis/core/layers/FeatureLayer.js";
 //import WFSLayer from "@arcgis/core/layers/WFSLayer.js";
 //import ImageryLayer from "@arcgis/core/layers/ImageryLayer.js";
 import Point from "@arcgis/core/geometry/Point.js";
+import Extent from "@arcgis/core/geometry/Extent.js";
 import * as projectOperator from "@arcgis/core/geometry/operators/projectOperator.js";
 //import * as Projection from "@arcgis/core/geometry/projection.js";
 import SpatialReference from "@arcgis/core/geometry/SpatialReference.js";
@@ -12,7 +13,6 @@ import ScaleBar from "@arcgis/core/widgets/ScaleBar.js";
 //import Compass from "@arcgis/core/widgets/Compass.js";
 import Graphic from "@arcgis/core/Graphic.js";
 import * as reactiveUtils from "@arcgis/core/core/reactiveUtils.js";
-import * as promiseUtils from "@arcgis/core/core/promiseUtils.js";
 import viewDefaults from "./view-defaults.js";
 import "./style.css";
 
@@ -73,9 +73,62 @@ function connectScaleViews(views, isMainPage) {
   }
 }
 
+function connectPrExtent(view, isMainPage) {
+  const peer = isMainPage
+    ? document.getElementById("drawer-iframe")?.contentWindow
+    : window.parent;
+  const origin = window.location.origin;
+  if (!peer || peer === window) return;
+  if (isMainPage) {
+    const sendExtent = () => {
+      if (view.extent) {
+        peer.postMessage({ type: "usa-pr-extent", extent: view.extent.toJSON() }, origin);
+      }
+    };
+    const onMessage = (event) => {
+      if (event.origin === origin && event.source === peer
+          && event.data?.type === "usa-pr-extent-ready") sendExtent();
+    };
+    window.addEventListener("message", onMessage);
+    view.addHandles([
+      reactiveUtils.watch(() => view.extent, sendExtent, { initial: true }),
+      { remove() { window.removeEventListener("message", onMessage); } },
+    ]);
+    return;
+  }
+  const graphic = new Graphic({
+    attributes: { inset: "pr" },
+    symbol: {
+      type: "simple-fill",
+      color: [0, 0, 0, 0],
+      outline: { color: [64, 64, 64, 0.5], width: "0.5px" },
+    },
+  });
+  view.graphics.add(graphic);
+  const onMessage = (event) => {
+    if (event.origin !== origin || event.source !== peer
+        || event.data?.type !== "usa-pr-extent") return;
+    const extent = event.data.extent;
+    if (!extent || !extent.spatialReference
+        || ![extent.xmin, extent.ymin, extent.xmax, extent.ymax].every(Number.isFinite)
+        || extent.xmin >= extent.xmax || extent.ymin >= extent.ymax) return;
+    graphic.geometry = Extent.fromJSON(extent);
+  };
+  window.addEventListener("message", onMessage);
+  view.addHandles({ remove() {
+    window.removeEventListener("message", onMessage);
+    view.graphics.remove(graphic);
+  } });
+  peer.postMessage({ type: "usa-pr-extent-ready" }, origin);
+}
+
 function connectZoomAnchor(view, defaults) {
   let manualCenter = null;
   let panning = false;
+  const regionalCenter = projectOperator.execute(new Point({
+    ...defaults.center,
+    spatialReference: defaults.center.spatialReference ?? view.spatialReference,
+  }), view.spatialReference);
   const anchor = projectOperator.execute(new Point({
     ...defaults.zoomAnchor,
     spatialReference: { wkid: 4326 },
@@ -85,8 +138,8 @@ function connectZoomAnchor(view, defaults) {
       (defaults.scale - view.scale) / (defaults.scale - viewDefaults.zoomAnchorScale)
     ));
     return new Point({
-      x: defaults.center.x + (anchor.x - defaults.center.x) * progress,
-      y: defaults.center.y + (anchor.y - defaults.center.y) * progress,
+      x: regionalCenter.x + (anchor.x - regionalCenter.x) * progress,
+      y: regionalCenter.y + (anchor.y - regionalCenter.y) * progress,
       spatialReference: view.spatialReference,
     });
   };
@@ -490,10 +543,36 @@ const App =  () => {
       if (label) label.textContent = Math.round(newScale).toLocaleString();
     }, { initial: true });
     disableDefaultPopupActions(mainView);
-    connectScaleViews([mainView], true);
+    const prView = new MapView({
+      container: "prViewDiv",
+      map,
+      spatialReference: prSR,
+      center: new Point(viewDefaults.puertoRico.center),
+      scale: mainView.scale,
+      rotation: viewDefaults.puertoRico.rotation,
+      popup: {
+        highlightEnabled: false,
+        dockEnabled: true,
+        dockOptions: { breakpoint: false, buttonEnabled: false, position: "top-center" },
+      },
+      ui: { components: [] },
+    });
+    window.prView = prView;
+    prView.on("layerview-create", (event) => {
+      if (["latlongLayer", "latlong180Layer"].includes(event.layer.id)) {
+        event.layerView.visible = false;
+      }
+    });
+    prView.ui.add(new ScaleBar({ view: prView, unit: "dual" }), "bottom-left");
+    disableDefaultPopupActions(prView);
+    const prCenterAtScale = connectZoomAnchor(prView, viewDefaults.puertoRico);
+    connectPrExtent(prView, true);
+    connectScaleViews([mainView, prView], true);
     if (globeTrial) {
       const { addLocatorGlobe } = await import("./locator-globe.js");
       addLocatorGlobe(mainView, "Continental US");
+      await prView.when();
+      addLocatorGlobe(prView, "Puerto Rico / USVI", prCenterAtScale);
     }
     return mainView;
     }
@@ -813,19 +892,6 @@ const App =  () => {
         guExtentSetup();
       });
     });
-    const guExtentDebouncer = promiseUtils.debounce(async () => {
-      if (guView.stationary) {
-        await overView.goTo({
-          center: guView.center,
-          scale:
-            guView.scale * 2 *
-            Math.max(
-              guView.width / overView.width,
-              guView.height / overView.height
-            )
-        });
-      }
-    });
     function guExtentSetup() {
       const guExtentGraphic = new Graphic({
         geometry: null,
@@ -844,11 +910,7 @@ const App =  () => {
       reactiveUtils.watch(
         () => guView.extent,
         (extent) => {
-          // Sync the overview map location
-          // whenever the guView is stationary
-          guExtentDebouncer().then(() => {
-            guExtentGraphic.geometry = extent;
-          });
+          guExtentGraphic.geometry = extent;
         },
         {
           initial: true
@@ -860,19 +922,6 @@ const App =  () => {
         asView.when(() => {
           asExtentSetup();
         });
-      });
-      const asExtentDebouncer = promiseUtils.debounce(async () => {
-        if (asView.stationary) {
-          await overView.goTo({
-            center: asView.center,
-            scale:
-              asView.scale * 2 *
-              Math.max(
-                asView.width / overView.width,
-                asView.height / overView.height
-              )
-          });
-        }
       });
       function asExtentSetup() {
         const asExtentGraphic = new Graphic({
@@ -892,11 +941,7 @@ const App =  () => {
         reactiveUtils.watch(
           () => asView.extent,
           (extent) => {
-            // Sync the overview map location
-            // whenever the guView is stationary
-            asExtentDebouncer().then(() => {
-              asExtentGraphic.geometry = extent;
-            });
+            asExtentGraphic.geometry = extent;
           },
           {
             initial: true
@@ -908,19 +953,6 @@ const App =  () => {
         hiView.when(() => {
           hiExtentSetup();
         });
-      });
-      const hiExtentDebouncer = promiseUtils.debounce(async () => {
-        if (hiView.stationary) {
-          await overView.goTo({
-            center: hiView.center,
-            scale:
-              hiView.scale * 2 *
-              Math.max(
-                hiView.width / overView.width,
-                hiView.height / overView.height
-              )
-          });
-        }
       });
       function hiExtentSetup() {
         const hiExtentGraphic = new Graphic({
@@ -940,17 +972,15 @@ const App =  () => {
         reactiveUtils.watch(
           () => hiView.extent,
           (extent) => {
-            // Sync the overview map location
-            // whenever the guView is stationary
-            hiExtentDebouncer().then(() => {
-              hiExtentGraphic.geometry = extent;
-            });
+            hiExtentGraphic.geometry = extent;
           },
           {
             initial: true
           }
         );
       }
+      connectPrExtent(overView, false);
+
       await Promise.all([akView, guView, asView, hiView].map((view) => view.when()));
       const insetViews = [
         [akView, "Alaska", viewDefaults.alaska],
