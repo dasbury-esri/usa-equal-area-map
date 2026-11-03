@@ -86,9 +86,11 @@ try {
         assert.ok(Math.abs(opened.alaskaCenter.y - 1417319.4019033893) < 0.001);
       }
       if (!globes) {
+        assert.equal(await page.frameLocator("#drawer-iframe").locator(".extent-leader").count(), 3);
         assert.equal(opened.overview.rotation, 20);
         assert.ok(Math.abs(opened.overview.x - (albers ? 19020.2579054083 : 482982.65986522695)) < 0.001);
       } else {
+        assert.equal(await page.frameLocator("#drawer-iframe").locator("#overViewDiv canvas, #overViewDiv .esri-view-root, .extent-leader").count(), 0);
         for (const canvas of opened.canvases) {
           assert.ok(canvas.twoDimensional && !canvas.hasWebGL);
           assert.ok(canvas.opaque > 500 && canvas.colors > 10 && canvas.outline > 0, JSON.stringify(canvas));

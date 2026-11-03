@@ -664,7 +664,7 @@ const App =  () => {
         spatialReference: overviewSR
     });
 
-    const overView = new MapView({
+    const overView = globeTrial ? null : new MapView({
         container: "overViewDiv",
         map: map,
         background: { 
@@ -690,6 +690,7 @@ const App =  () => {
           components: []//["attribution"]
         }
     });
+    if (overView) {
     let ovScaleBar = new ScaleBar({
       view: overView,
       unit: "dual" // Options are metric, imperial, or dual
@@ -708,7 +709,8 @@ const App =  () => {
       else if (event.layer.id === "airportGrounds") {
         event.layerView.visible = false;
       }
-    });          
+    });
+    }
 /*        let ovCompass = new Compass({
       view: overView
     });
@@ -896,12 +898,12 @@ const App =  () => {
         console.error("Error loading the HI map view:", error);
         });
     //remove zoom widgets from popup
-    for (const view of [akView, overView, guView, asView, hiView]) {
+    for (const view of [akView, overView, guView, asView, hiView].filter(Boolean)) {
       disableDefaultPopupActions(view);
     }
     
     // Add an extent box to the overview map from the GU/MP map
-    overView.when(() => {
+    overView?.when(() => {
       guView.when(() => {
         guExtentSetup();
       });
@@ -932,7 +934,7 @@ const App =  () => {
       );
     }     
     // Add an extent box to the overview map from the AS map
-    overView.when(() => {
+    overView?.when(() => {
         asView.when(() => {
           asExtentSetup();
         });
@@ -963,7 +965,7 @@ const App =  () => {
         );
       }
     // Add an extent box to the overview map from the HI map
-    overView.when(() => {
+    overView?.when(() => {
         hiView.when(() => {
           hiExtentSetup();
         });
@@ -993,7 +995,7 @@ const App =  () => {
           }
         );
       }
-      connectPrExtent(overView, false);
+      if (overView) connectPrExtent(overView, false);
 
       await Promise.all([akView, guView, asView, hiView].map((view) => view.when()));
       const insetViews = [
