@@ -16,6 +16,18 @@ extra:
 
 # USA Equal Area Map
 
+## Local Development
+
+Use one repository-backed dev instance at
+`http://127.0.0.1:5173/usa-equal-area-map/`. Start it with `npm run dev` from
+this repository. Port 5173 is strict: a second start fails instead of moving
+to another port. URL options select the preview, projection and layout on
+that same server. Do not serve copied source snapshots for ongoing work.
+
+The temporary port-5174 server is stopped. Continue editing this repository,
+including [src/main.js](src/main.js); publish only after owner review and
+explicit approval. The production site has not been changed.
+
 ## Current state
 
 The project is an unfinished Vite/npm modernization of the expanded overview
@@ -44,14 +56,29 @@ layout. The experiment adds rendering dependencies but does not perform the
 pending dependency audit or add pan limits. See
 [session 0003](session-logs/2026-11-02-0003-session-log.md).
 
-The captured non-globe views are saved in
-[src/view-defaults.js](src/view-defaults.js). The five inset/overview views
-use the captured centers, scales, and rotations on load. CONUS starts centered
-at longitude -97, latitude 38 and uses its captured offset position when the
-drawer opens at the default scale; closing restores the centered position.
-Both layouts use these defaults; the trial recenter buttons use the saved
-inset centers. The owner's `6 / 9` drawer ratio is preserved. At the captured
-window and pane sizes, opening the drawer reproduces all six saved extents.
+The local `?projection=albers` option selects the existing custom Albers
+definitions for CONUS, PR/USVI, Alaska, the overview, Guam/CNMI, American
+Samoa, and Hawaii. It also works with `?projection=albers&overview=globes`;
+both options are forwarded to the drawer iframe. Missing or unknown projection
+values retain Lambert. Saved centers retain their source spatial references,
+so changing projection does not reinterpret Lambert meters as Albers meters.
+Native browser checks and the production build passed for both projections.
+The owner's current Albers Alaska meridian is -146 and the overview meridian
+is -140 in both projections. Their regional cartographic suitability has not
+been fully audited. This option
+is not yet committed or published.
+
+Responsive framing is now the default, with no `framing=preview` flag required.
+The plain URL remains Lambert; `?projection=albers` selects Albers, and either
+works with `overview=globes`. The active 1920x1080 Albers Alaska/overview captures
+are saved in [experiments/framing-placement.js](experiments/framing-placement.js).
+Lambert and Albers have independent overview presets. Alaska's Albers footprint
+fits both pane dimensions; CONUS constraints can enlarge the shared footprint
+to prevent clipping. The older construction defaults remain in
+[src/view-defaults.js](src/view-defaults.js), but responsive initialization now
+overrides the main/Alaska/overview framing. Closing or resizing resets the fit;
+globe inset recenter buttons restore regional centers at the current scale.
+The owner's `6 / 9` drawer ratio and default closed drawer states are preserved.
 
 Alaska's default was subsequently updated to the owner's adjusted view. Its
 bold label is at the upper left and its scale bar at the lower left in both
@@ -124,13 +151,59 @@ filter. The layer is present in both layouts, including the original overview.
 
 ## Layout Validation Scope
 
-- Current design and acceptance focus on landscape windows at different
-  resolutions, including compact landscape windows.
+- [Provisional ADR 0001](docs/adr/ADR-0001-responsive-landscape-map-framing.md)
+  formalizes 16:9 and 16:10 as primary design targets, with 21:9 and common
+  ultrawide variants as edge cases across multiple CSS-pixel resolutions.
+- The proposed direction replaces fixed-scale initial framing with a
+  viewport- and drawer-aware fit, aiming for broad regional coverage, minimal
+  unused margin, and reduced duplicated geography when both drawers are open.
+  The overview is exempt from the non-duplication goal. Alaska's fit is computed
+  while the left drawer is closed, then supplies the shared scale on opening;
+  CONUS recenters without clipping and linked zoom is enforced while open.
+  Preserve Alaska's north and panhandle; western Aleutian clipping may be
+  accepted in both layouts, including globe mode without an overview. When
+  the standard overview is present, retain the complete chain there. Tight
+  geographic margins are accepted rather than imposing a universal minimum. PR/USVI
+  toggles leave CONUS unchanged; minimal reference-tab overlap is accepted.
+  Exact geographic targets and acceptance tolerances remain provisional.
+- Responsive framing is now the normal startup/navigation behavior.
+  Existing `framing=preview` links remain compatible, but the parameter is not
+  needed with `projection=albers`, `overview=globes`, or both. Actual pane sizes
+  drive the Alaska-led fit, constrained to keep CONUS visible with its upward
+  placement and tight edge allowance. Closing or resizing resets framing;
+  airport-following is disabled. Globe inset recenter buttons restore regional
+  centers at the current scale. Other manual-navigation/resize policies remain
+  outside this change.
+- The isolated Lambert/standard-layout probe passed Alaska-led scale-fit
+  checks at 1920x1080 and 2560x1600 without clipping CONUS at the left drawer
+  or viewport edges or clipping the selected Alaska boundary. Composition
+  is not yet accepted: centered open framing duplicates part of Alaska, and
+  centered closed framing hides Florida behind the PR/USVI panel. The ADR
+  records these measurements and the next placement experiments.
+- The owner accepts initial closed-drawer CONUS framing at both reference
+  aspect ratios and has manually adjusted open-drawer references. The ADR
+  preserves all seven views' centers, scales, rotations, extents, and pane
+  sizes for 1920x1080 and 2560x1600. These indicate a shared upward CONUS
+  placement intent, but different Alaska coverage/scale choices; they are
+  reference evidence, not new runtime defaults.
+- The default URLs passed 16 native checks: all four projection/
+  layout combinations at 1280x800, 1920x1080, 2560x1600 and 3440x1440. Selected
+  boundary checks found no open CONUS clipping, PR overlap, or duplicated
+  Alaska/Hawaii; full Alaska remains in standard overviews. Globe rendering,
+  movement, inset recentering and reference-size navigation/resize checks passed.
+  The build passed. Fixed-scale/airport-following tests of the former default
+  are superseded. The closed PR overlap and wider untested matrix remain
+  limitations. Only repository-backed port 5173 runs. The current -146 Albers
+  Alaska reference and independent -140 overview presets were captured and
+  validated; a 0.2% Lambert overview allowance preserves its northern coverage.
+  Owner layer changes are preserved.
+  Nothing has been committed or published.
 - Portrait/mobile-portrait rendering, screenshots, and layout optimization
   are not required checks or release gates. Revisit only when the owner
   explicitly brings that work back into scope.
-- Use landscape viewports such as 1024x600, 1280x800, and 1920x1080 for drawer
-  placement, map framing, linked scales, labels, and control checks.
+- Use the ADR's proposed viewport matrix for future framing work. Earlier
+  checks at 1024x600, 1280x800, and 1920x1080 remain historical evidence, not
+  proof of acceptance under the new framing goals.
 - Earlier portrait results in session logs are historical observations, not
   continuing requirements. General accessibility and resizing still apply.
 

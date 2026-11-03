@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   plugins: [react()],
+  server: { port: 5173, strictPort: true },
   base: "/usa-equal-area-map/",
   build: {
     rollupOptions: {

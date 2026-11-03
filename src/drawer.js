@@ -19,11 +19,16 @@ if (toggleButton && drawerContainer && drawerFrame) {
     const view = await window.mainViewReady;
     if (!view) return;
     updatePosition();
+    if (window.framingPreviewReady) {
+      const preview = await window.framingPreviewReady;
+      preview.update();
+      return;
+    }
     const isOpen = drawerContainer.classList.contains("drawer-open");
     if (!isOpen || Math.abs(view.scale - viewDefaults.main.scale) < 1) {
       await view.goTo({
         center: new Point(isOpen
-          ? { ...viewDefaults.main.drawerOpenCenter, spatialReference: view.spatialReference }
+          ? viewDefaults.main.drawerOpenCenter
           : viewDefaults.main.center),
         scale: view.scale,
       }, { animate: false });

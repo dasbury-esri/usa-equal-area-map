@@ -16,13 +16,20 @@ import * as reactiveUtils from "@arcgis/core/core/reactiveUtils.js";
 import viewDefaults from "./view-defaults.js";
 import "./style.css";
 
-const globeTrial = new URLSearchParams(window.location.search).get("overview") === "globes";
-if (globeTrial) {
-  document.body.classList.add("globe-trial");
+const urlParams = new URLSearchParams(window.location.search);
+const globeTrial = urlParams.get("overview") === "globes";
+const albersProj = urlParams.get("projection") === "albers";
+const framingPreview = true;
+if (framingPreview) window.framingPreviewCenters = new WeakMap();
+if (globeTrial) document.body.classList.add("globe-trial");
+if (albersProj) document.body.classList.add("albers-view");
+if (globeTrial || albersProj || framingPreview) {
   const drawerFrame = document.getElementById("drawer-iframe");
   if (drawerFrame) {
     const drawerURL = new URL(drawerFrame.src);
-    drawerURL.searchParams.set("overview", "globes");
+    if (globeTrial) drawerURL.searchParams.set("overview", "globes");
+    if (albersProj) drawerURL.searchParams.set("projection", "albers");
+    if (framingPreview) drawerURL.searchParams.set("framing", "preview");
     drawerFrame.src = drawerURL.href;
   }
 }
@@ -37,6 +44,8 @@ function connectScaleViews(views, isMainPage) {
   const frame = document.getElementById("drawer-iframe");
   const peer = isMainPage ? frame?.contentWindow : window.parent;
   let applyingScale = false;
+  const canShareScale = () => !framingPreview || (isMainPage ? document : window.parent.document)
+    .getElementById("drawer-container")?.classList.contains("drawer-open");
   const applyScale = (scale) => {
     if (!Number.isFinite(scale) || scale <= 0) return;
     applyingScale = true;
@@ -49,13 +58,14 @@ function connectScaleViews(views, isMainPage) {
     }
   };
   const sendScale = (scale) => {
+    if (!canShareScale()) return;
     peer?.postMessage({ type: "usa-map-scale", scale }, window.location.origin);
   };
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin || event.source !== peer) return;
     if (isMainPage && event.data?.type === "usa-map-ready") {
       sendScale(views[0].scale);
-    } else if (event.data?.type === "usa-map-scale") {
+    } else if (event.data?.type === "usa-map-scale" && canShareScale()) {
       applyScale(event.data.scale);
     }
   });
@@ -129,6 +139,9 @@ function connectZoomAnchor(view, defaults) {
     ...defaults.center,
     spatialReference: defaults.center.spatialReference ?? view.spatialReference,
   }), view.spatialReference);
+  if (framingPreview) {
+    return () => (window.framingPreviewCenters.get(view) ?? regionalCenter).clone();
+  }
   const anchor = projectOperator.execute(new Point({
     ...defaults.zoomAnchor,
     spatialReference: { wkid: 4326 },
@@ -253,7 +266,7 @@ const App =  () => {
     {
     // Lambert Equal Area Projection for continental US
     var conusSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_North America_alt",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-99.0],PARAMETER["Latitude_Of_Origin",40.0],UNIT["Meter",1.0]]');
+      viewDefaults.main.drawerOpenCenter.spatialReference);
     // Lambert Equal Area projection for Alaska map
     var akSR = new SpatialReference(
         'PROJCS["Lambert Azimuthal Equal Area_Alaska",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-148.0],PARAMETER["Latitude_Of_Origin",64.0],UNIT["Meter",1.0]]');
@@ -271,7 +284,7 @@ const App =  () => {
         'PROJCS["Lambert Azimuthal Equal Area_AS",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-170.0],PARAMETER["Latitude_Of_Origin",-14.0],UNIT["Meter",1.0]]');
     // Lambert Equal Area Projection for Overview map
     var overviewSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_US_global_extent",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-148.0],PARAMETER["Latitude_Of_Origin",17.25],UNIT["Meter",1.0]]');
+        'PROJCS["Lambert Azimuthal Equal Area_US_global_extent",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-140.0],PARAMETER["Latitude_Of_Origin",17.25],UNIT["Meter",1.0]]');
     }
 
     {
@@ -280,7 +293,7 @@ const App =  () => {
       'PROJCS["Albers Equal Area_US",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-96.0],PARAMETER["Standard_Parallel_1",29.5],PARAMETER["Standard_Parallel_2",45.5],PARAMETER["Latitude_Of_Origin",23.0],UNIT["Meter",1.0]]');
     // Albers Equal Area Projection for Alaska map
     var akAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_AK",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-154.0],PARAMETER["Standard_Parallel_1",55.0],PARAMETER["Standard_Parallel_2",65.0],PARAMETER["Latitude_Of_Origin",50.0],UNIT["Meter",1.0]]');
+      'PROJCS["Albers Equal Area_AK",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-146.0],PARAMETER["Standard_Parallel_1",55.0],PARAMETER["Standard_Parallel_2",65.0],PARAMETER["Latitude_Of_Origin",50.0],UNIT["Meter",1.0]]');
     // Albers Equal Area Projection for Hawaii map
     var hiAlbersSR = new SpatialReference(
       'PROJCS["Albers Equal Area_HI",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-157.0],PARAMETER["Standard_Parallel_1",8.0],PARAMETER["Standard_Parallel_2",18.0],PARAMETER["Latitude_Of_Origin",13.0],UNIT["Meter",1.0]]');
@@ -295,7 +308,7 @@ const App =  () => {
       'PROJCS["Albers Equal Area_AS",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-170.0],PARAMETER["Standard_Parallel_1",-14.0],PARAMETER["Standard_Parallel_2",-10.0],PARAMETER["Latitude_Of_Origin",-13.0],UNIT["Meter",1.0]]');
     // Albers Equal Area Projection for Overview map
     var overviewAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_Overview",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-96.0],PARAMETER["Standard_Parallel_1",29.5],PARAMETER["Standard_Parallel_2",45.5],PARAMETER["Latitude_Of_Origin",23.0],UNIT["Meter",1.0]]');
+      'PROJCS["Albers Equal Area_Overview",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-140.0],PARAMETER["Standard_Parallel_1",29.5],PARAMETER["Standard_Parallel_2",45.5],PARAMETER["Latitude_Of_Origin",23.0],UNIT["Meter",1.0]]');
     }
 
     var defaultLayer = new FeatureLayer({
@@ -388,7 +401,7 @@ const App =  () => {
     var backgroundLayer = new FeatureLayer({
         id: "backgroundLayer",
         portalItem:{
-          id:"75ea506613f847e48ab0f91e93ac538d" // Admin-0 World Countries
+          id:"acc8fccf06d74364bffe6a9bd0dfded7" // Admin-0 World Countries
         },
         legendEnabled: false,
         renderer: {
@@ -409,8 +422,9 @@ const App =  () => {
       var usStatesLayer = new FeatureLayer({
         id: "usStatesLayer",
         portalItem:{
-          id:"1ec2ffa0ebd34e4eac694adb9fa18184" // Admin-1 World Countries
+          id:"2816c6a03f0740e9b13d563b93e60b9d" // Admin-1 World Countries
         },
+        definitionExpression: "COUNTRYAFF = 'United States'",
         legendEnabled: false,
         renderer: {
           type: "simple", // autocasts as new SimpleRenderer()
@@ -501,7 +515,7 @@ const App =  () => {
       center: conusViewCenterPt,
       scale: scale,
       rotation: viewDefaults.main.rotation,
-      spatialReference: conusSR,
+      spatialReference: albersProj ? conusAlbersSR : conusSR,
       ui: {
         components: []
       }
@@ -546,7 +560,7 @@ const App =  () => {
     const prView = new MapView({
       container: "prViewDiv",
       map,
-      spatialReference: prSR,
+      spatialReference: albersProj ? prAlbersSR : prSR,
       center: new Point(viewDefaults.puertoRico.center),
       scale: mainView.scale,
       rotation: viewDefaults.puertoRico.rotation,
@@ -597,7 +611,7 @@ const App =  () => {
         center: akViewCenterPt,
         scale: viewDefaults.alaska.scale,
         rotation: viewDefaults.alaska.rotation,
-        spatialReference: akSR,
+        spatialReference: albersProj ? akAlbersSR : akSR,
         ui: {
           components: []//["attribution"]
         }
@@ -669,9 +683,9 @@ const App =  () => {
         scale: viewDefaults.overview.scale,
         rotation: viewDefaults.overview.rotation,
         constraints: {
-          rotationEnabled: false
+          rotationEnabled: true
         },
-        spatialReference: overviewSR,
+        spatialReference: albersProj ? overviewAlbersSR : overviewSR,
         ui: {
           components: []//["attribution"]
         }
@@ -723,7 +737,7 @@ const App =  () => {
         center: guViewCenterPt,
         scale: viewDefaults.guam.scale,
         rotation: viewDefaults.guam.rotation,
-        spatialReference: guSR,
+        spatialReference: albersProj ? guAlbersSR : guSR,
         ui: {
           components: []//["attribution"]
         }
@@ -771,7 +785,7 @@ const App =  () => {
         center: asViewCenterPt,
         scale: viewDefaults.americanSamoa.scale,
         rotation: viewDefaults.americanSamoa.rotation,
-        spatialReference: asSR,
+        spatialReference: albersProj ? asAlbersSR : asSR,
         ui: {
           components: []//["attribution"]
         }
@@ -819,7 +833,7 @@ const App =  () => {
         center: hiViewCenterPt,
         scale: viewDefaults.hawaii.scale,
         rotation: viewDefaults.hawaii.rotation,
-        spatialReference: hiSR,
+        spatialReference: albersProj ? hiAlbersSR : hiSR,
         ui: {
           components: []//["attribution"]
         }
@@ -983,12 +997,17 @@ const App =  () => {
 
       await Promise.all([akView, guView, asView, hiView].map((view) => view.when()));
       const insetViews = [
-        [akView, "Alaska", viewDefaults.alaska],
-        [guView, "Guam / CNMI", viewDefaults.guam],
-        [asView, "American Samoa", viewDefaults.americanSamoa],
-        [hiView, "Hawaii", viewDefaults.hawaii],
+        [akView, "Alaska", { ...viewDefaults.alaska, center: akViewCenterPt.toJSON() }],
+        [guView, "Guam / CNMI", { ...viewDefaults.guam, center: guViewCenterPt.toJSON() }],
+        [asView, "American Samoa", { ...viewDefaults.americanSamoa, center: asViewCenterPt.toJSON() }],
+        [hiView, "Hawaii", { ...viewDefaults.hawaii, center: hiViewCenterPt.toJSON() }],
       ].map(([view, label, defaults]) => [view, label, connectZoomAnchor(view, defaults)]);
       connectScaleViews([akView, guView, asView, hiView], false);
+      if (framingPreview) {
+        akView.addHandles(reactiveUtils.watch(() => [akView.width, akView.height], () => {
+          window.frameElement?.dispatchEvent(new Event("framing-preview-resize"));
+        }));
+      }
       if (globeTrial) {
         const { addLocatorGlobe } = await import("./locator-globe.js");
         for (const [view, label, centerAtScale] of insetViews) {
@@ -1003,3 +1022,10 @@ const App =  () => {
 export default App;
 
 window.mainViewReady = App();
+if (framingPreview && document.getElementById("mainViewDiv")) {
+  window.framingPreviewReady = window.mainViewReady.then(async (view) => {
+    const { connectFramingPreview } = await import("./framing-preview.js");
+    return connectFramingPreview(view);
+  });
+  window.framingPreviewReady.catch(error => console.error("Could not initialize framing preview", error));
+}
