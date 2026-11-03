@@ -28,13 +28,4 @@
           </div>
       </div>
       
-      <script>
-        window.addEventListener("storage", (event) => {
-          if (event.key === "mainViewScale") {
-            const scale = parseFloat(event.newValue);
-            console.log("Updating akView scale from localStorage:", scale);
-            akView.set({ scale });
-          }
-        });
-      </script>
     </body>

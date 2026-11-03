@@ -15,8 +15,54 @@ import * as reactiveUtils from "@arcgis/core/core/reactiveUtils.js";
 import * as promiseUtils from "@arcgis/core/core/promiseUtils.js";
 import "./style.css";
 
+function disableDefaultPopupActions(view) {
+  reactiveUtils.watch(() => view.popup?.viewModel, (viewModel) => {
+    if (viewModel) viewModel.includeDefaultActions = false;
+  }, { initial: true });
+}
+
+function connectScaleViews(views, isMainPage) {
+  const frame = document.getElementById("drawer-iframe");
+  const peer = isMainPage ? frame?.contentWindow : window.parent;
+  let applyingScale = false;
+  const applyScale = (scale) => {
+    if (!Number.isFinite(scale) || scale <= 0) return;
+    applyingScale = true;
+    try {
+      for (const view of views) {
+        if (Math.abs(view.scale - scale) > scale * 1e-8) view.scale = scale;
+      }
+    } finally {
+      applyingScale = false;
+    }
+  };
+  const sendScale = (scale) => {
+    peer?.postMessage({ type: "usa-map-scale", scale }, window.location.origin);
+  };
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin || event.source !== peer) return;
+    if (isMainPage && event.data?.type === "usa-map-ready") {
+      sendScale(views[0].scale);
+    } else if (event.data?.type === "usa-map-scale") {
+      applyScale(event.data.scale);
+    }
+  });
+  for (const view of views) {
+    reactiveUtils.watch(() => view.scale, (scale) => {
+      if (applyingScale || !Number.isFinite(scale) || scale <= 0) return;
+      applyScale(scale);
+      sendScale(scale);
+    }, { sync: true });
+  }
+  if (isMainPage) {
+    sendScale(views[0].scale);
+  } else if (peer !== window) {
+    peer.postMessage({ type: "usa-map-ready" }, window.location.origin);
+  }
+}
+
 const App =  () => {
-    projectOperator.load().then(() => {
+    return projectOperator.load().then(async () => {
         if (projectOperator.isLoaded()) {
             console.log("projectOperator is loaded");
             // Add your projection parameters or logic here
@@ -204,6 +250,7 @@ const App =  () => {
     });
     var map = layerMap;
     var scale = 24000000;
+    if (document.getElementById("mainViewDiv")) {
     // CONUS map
     // Set the center point for the view
     let conusViewCenterPt = new Point({
@@ -263,7 +310,17 @@ const App =  () => {
       });
     // Print the map scale to the console
     console.log("Scale: " + mainView.scale);
-    var mainViewScale = mainView.scale;
+    await mainView.when();
+    reactiveUtils.watch(() => mainView.scale, (newScale) => {
+      const label = document.getElementById("mainViewScaleValue");
+      if (label) label.textContent = Math.round(newScale).toLocaleString();
+    }, { initial: true });
+    disableDefaultPopupActions(mainView);
+    connectScaleViews([mainView], true);
+    return mainView;
+    }
+    if (!document.getElementById("akViewDiv")) return null;
+    var mainViewScale = scale;
     // Alaska map
     let akViewCenterPt = new Point({
         x: -161.5,
@@ -315,6 +372,7 @@ const App =  () => {
     akView.ui.add(akScaleBar, {
       position: "top-left"
     });
+    akView.ui.add(document.getElementById("akText"), "top-right");
 /*        let akCompass = new Compass({
       view: akView
     });
@@ -546,39 +604,10 @@ const App =  () => {
         event.layerView.visible = false;
       }  
     });
-    // Resolve the Promise when mainView is ready
-    mainView.when(() => {
-      promiseUtils.eachAlways(mainView);
-      // Watch for changes to the scale property
-      mainView.reactiveUtils.watch("scale", (newScale) => {
-        console.log("mainView scale changed:", newScale);
-        // Update the mainViewScaleValue span
-        const mainViewScaleValueSpan = document.getElementById("mainViewScaleValue");
-        if (mainViewScaleValueSpan) {
-          mainViewScaleValueSpan.textContent = Math.round(newScale).toLocaleString();
-        }
-      });
-      // Initialize the scale value on page load
-      const mainViewScaleValueSpan = document.getElementById("mainViewScaleValue");
-      if (mainViewScaleValueSpan) {
-        mainViewScaleValueSpan.textContent = Math.round(mainView.scale).toLocaleString();
-      }           
-  /*    const attributionWidget = mainView.ui.find("attribution");
-      // Append the attribution widget to the custom container
-      const customContainer = document.getElementById("customAttributionText");
-      if (customContainer) {
-        customContainer.appendChild(attributionWidget.container);
-      } else {
-        console.error("Custom attribution container not found.");
-      }    */      
-    }).catch((error) => {
-      console.error("Error loading the mainView:", error);
-      promiseUtils.eachAlways(error);
-    });        
     akView.when(() => {
         console.log("Alaska Map and View are ready");
         // Watch for changes to the scale property
-        akView.reactiveUtils.watch("scale", (newScale) => {
+        reactiveUtils.watch(() => akView.scale, (newScale) => {
           console.log("akView scale changed:", newScale);
           // Update the akScaleValue span
           const akScaleValueSpan = document.getElementById("akScaleValue");
@@ -597,7 +626,7 @@ const App =  () => {
     overView.when(() => {
         console.log("Overview Map and View are ready");
         // Watch for changes to the scale property
-        overView.reactiveUtils.watch("scale", (newScale) => {
+        reactiveUtils.watch(() => overView.scale, (newScale) => {
           console.log("overView scale changed:", newScale);
           // Update the overViewScaleValue span
           const overViewScaleValueSpan = document.getElementById("overViewScaleValue");
@@ -629,29 +658,14 @@ const App =  () => {
         console.error("Error loading the HI map view:", error);
         });
     //remove zoom widgets from popup
-    mainView.popup.viewModel.includeDefaultActions = false;
-    akView.popup.viewModel.includeDefaultActions = false;
-    overView.popup.viewModel.includeDefaultActions = false;
-    guView.popup.viewModel.includeDefaultActions = false;
-    asView.popup.viewModel.includeDefaultActions = false;
-    hiView.popup.viewModel.includeDefaultActions = false;
+    for (const view of [akView, overView, guView, asView, hiView]) {
+      disableDefaultPopupActions(view);
+    }
     
-    // Sync Alaska scale
-    akView.when(() => {
-      syncScale(akView, hiView);
-      syncScale(akView, asView);
-      syncScale(akView, guView);
-      syncScale(akView, mainView);
-    });
-
     // Add an extent box to the overview map from the GU/MP map
     overView.when(() => {
       guView.when(() => {
         guExtentSetup();
-        syncScale(guView, akView);
-        syncScale(guView, asView);
-        syncScale(guView, hiView);
-        syncScale(guView, mainView);
       });
     });
     const guExtentDebouncer = promiseUtils.debounce(async () => {
@@ -699,10 +713,6 @@ const App =  () => {
     overView.when(() => {
         asView.when(() => {
           asExtentSetup();
-          syncScale(asView, akView);
-          syncScale(asView, guView);
-          syncScale(asView, hiView);
-          syncScale(asView, mainView);
         });
       });
       const asExtentDebouncer = promiseUtils.debounce(async () => {
@@ -750,10 +760,6 @@ const App =  () => {
     overView.when(() => {
         hiView.when(() => {
           hiExtentSetup();
-          syncScale(hiView, akView);
-          syncScale(hiView, asView);
-          syncScale(hiView, guView);
-          syncScale(hiView, mainView);
         });
       });
       const hiExtentDebouncer = promiseUtils.debounce(async () => {
@@ -797,30 +803,8 @@ const App =  () => {
           }
         );
       }
-      // Sync scales across insets
-      function syncScale(view, targetView) {
-        view.reactiveUtils.watch("scale", function(newScale) {
-          console.log("Inset changed: " + newScale);
-          targetView.set({ scale: newScale });
-        });
-      }
-      // Sync scale between mainView and other views
-      mainView.reactiveUtils.watch("scale", (newScale) => {
-        console.log("Main changed:", newScale);
-        localStorage.setItem("mainViewScale", newScale); // Store the scale in localStorage
-        const storedScale = localStorage.getItem("mainViewScale");
-        console.log("Stored scale:", storedScale);
-        if (storedScale) {
-          const scale = parseFloat(storedScale);
-          console.log("Updating scale:", scale);
-
-          akView.set({ scale });
-          console.log("AK scale: ", akView.scale)
-          guView.set({ scale });
-          asView.set({ scale });
-          hiView.set({ scale });
-        }
-      });
+      await Promise.all([akView, guView, asView, hiView].map((view) => view.when()));
+      connectScaleViews([akView, guView, asView, hiView], false);
 };
 }).catch((error) => {
     console.error("Error loading projectOperator:", error);
@@ -828,6 +812,4 @@ const App =  () => {
 }
 export default App;
 
-document.addEventListener("DOMContentLoaded", () => {
-    App(); // Ensure the App function runs after the DOM is loaded
-});
+window.mainViewReady = App();

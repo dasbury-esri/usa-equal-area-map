@@ -11,7 +11,7 @@ html, body {
     padding: 0;
     margin: 0;
     height: 100vh;
-    aspect-ratio: 16 / 9;
+    width: 100%;
     position: relative;
     overflow: hidden;
 }
@@ -111,6 +111,7 @@ html, body {
     left: 0;
     height: 100%;
     aspect-ratio: 8 / 9;
+    max-width: calc(100% - 60px);
     background-color: white;
     box-shadow: 2px 0 5px rgba(0, 0, 0, 0.3);
     transition: transform 0.3s ease-in-out;
@@ -144,7 +145,7 @@ html, body {
     right: -60px; /* Place outside the drawer */
     width: 60px;
     height: 30%;
-    background-color: hex(0xEBEBEB);
+    background-color: #EBEBEB;
     color: black;
     border: none;
     border-radius: 0px 5px 5px 0px; /* Rounded corners */
@@ -158,6 +159,24 @@ html, body {
   position: absolute;
   justify-content: flex-end; /* Align text to the right */
   align-items: flex-start; /* Align text to the top */
+  }
+
+  #drawer-thumbnails {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+  }
+
+  #drawer-thumbnails img {
+    width: 100%;
+    height: 25%;
+    min-height: 0;
+    object-fit: contain;
+  }
+
+  #akViewDiv, #overViewDiv, #insetContainer {
+    box-sizing: border-box;
   }
   
   #akViewDiv {

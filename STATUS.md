@@ -24,15 +24,25 @@ The predecessor remains a historical reference, not a second active project.
 The migration copied the predecessor's `overview/js/map2.js` byte-for-byte
 in commit `a8ca91f`, then moved the application to ArcGIS 4.32 ES modules.
 
-The drawer script still waits for `window.mainViewReady`, but the map module
-no longer defines that promise. Drawer repair and dependency review remain
-pending. The owner selected the tracking state and health above; they do not
-represent runtime acceptance. Neither application was run during onboarding.
+The local drawer repair gives Vite both HTML entry points, initializes only
+the maps belonging to each page, and synchronizes scales through origin- and
+source-checked iframe messages. The toggle works independently of map loading;
+recentring preserves zoom. ArcGIS popup initialization and scale watchers now
+follow the installed SDK's lazy-popup and reactive APIs.
+
+Build and native browser checks verified drawer toggling, inset rendering,
+two-way scale changes and a narrow-screen layout. Existing background and
+state-boundary layers reported remote loading errors and remain unresolved.
+Dependency review is still pending; no dependencies were changed. The owner's
+tracking fields and exact next action above are preserved. See
+[session 0002](session-logs/2026-11-02-0002-session-log.md) for verification scope.
 
 ## Done
 
 - [x] Compared the successor and predecessor source and Git history.
 - [x] Established the owner-requested tracking fields.
+- [x] Repaired drawer initialization, iframe packaging and scale synchronization.
+- [x] Checked the development and production builds in a native browser.
 
 ## Next
 
