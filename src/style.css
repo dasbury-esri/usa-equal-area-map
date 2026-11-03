@@ -1,5 +1,98 @@
 @import "https://js.arcgis.com/4.32/@arcgis/core/assets/esri/themes/light/main.css";
 
+.globe-trial #overViewDiv {
+  display: none;
+}
+
+.globe-trial #akViewDiv {
+  height: 58%;
+}
+
+.globe-trial #insetContainer {
+  height: 42%;
+}
+
+.globe-trial :is(#akViewDiv, #guViewDiv, #asViewDiv, #hiViewDiv) {
+  position: relative;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.globe-trial :is(#akText, #cnmiText, #guText, #asText, #hiText) {
+  display: none;
+}
+
+.locator-globe {
+  position: absolute;
+  right: 5px;
+  bottom: 6px;
+  width: 68px;
+  height: 68px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.locator-globe canvas {
+  display: block;
+}
+
+.inset-recenter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px;
+  border: 0;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.85);
+  color: #252525;
+  font: bold 11px/1.2 "Avenir Next", sans-serif;
+  letter-spacing: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inset-recenter:hover {
+  background: white;
+}
+
+.inset-recenter:focus-visible {
+  outline: 2px solid #246e8b;
+  outline-offset: 1px;
+}
+
+.inset-recenter-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.inset-scale-readout {
+  font-size: 10px;
+  font-weight: normal;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.globe-trial #insetContainer .esri-ui-top-left {
+  max-width: calc(100% - 4px);
+}
+
+.globe-trial #insetContainer .esri-ui-bottom-left {
+  bottom: 76px;
+}
+
+.globe-trial .compact-inset .esri-scale-bar {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .globe-trial:has(#drawer-container.drawer-open) #mainViewDiv .locator-globe {
+    display: none;
+  }
+}
+
 html, body {
     margin: 0;
     padding: 0;
@@ -110,7 +203,7 @@ html, body {
     top: 0;
     left: 0;
     height: 100%;
-    aspect-ratio: 8 / 9;
+    aspect-ratio: 6 / 9;
     max-width: calc(100% - 60px);
     background-color: white;
     box-shadow: 2px 0 5px rgba(0, 0, 0, 0.3);
@@ -191,15 +284,33 @@ html, body {
     background-color: rgba(25, 250, 250, 0);
   }
   
-  .esri-view-user-storage #akText {   
-  justify-self: flex-end; /* Align text to the right */
-  align-items: flex-start; /* Align text to the top */
-  padding: 5px; /* Add some padding for spacing */
-  color: black; /* Set text color */
-  font-size: 12px; /* Adjust font size as needed */
-  font-weight: bold; /* Make text bold */
+  #akText,
+  #overviewText,
+  #cnmiText,
+  #asText,
+  #hiText {
+    position: relative;
+    display: block;
+    padding: 5px;
+    color: black;
+    font-size: 12px;
+    font-weight: bold;
+    line-height: 1.15;
+    text-align: left;
   }
   
+  .extent-leader {
+    position: fixed;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .extent-leader line {
+    stroke: rgba(64, 64, 64, 0.5);
+    stroke-width: 0.75;
+  }
+
   #overViewDiv {
     padding: 0;
     margin: 0;
@@ -236,17 +347,6 @@ html, body {
     background-color: rgba(25, 250, 250, 0);
   }
   
-  #cnmiText {
-  position: relative; /* Ensure positioning context */
-  display: flex;
-  justify-content: flex-end; /* Align text to the right */
-  align-items: flex-start; /* Align text to the top */
-  padding: 5px; /* Add some padding for spacing */
-  color: black; /* Set text color */
-  font-size: 12px; /* Adjust font size as needed */
-  font-weight: bold; /* Make text bold */
-  }
-  
   #guText {
   position: absolute; /* Ensure positioning context */
   top: 0;
@@ -274,17 +374,6 @@ html, body {
     background-color: rgba(25, 250, 250, 0);
   }
   
-  #asText {   
-  position: relative; /* Ensure positioning context */
-  display: flex;
-  justify-content: flex-end; /* Align text to the right */
-  align-items: flex-start; /* Align text to the top */
-  padding: 5px; /* Add some padding for spacing */
-  color: black; /* Set text color */
-  font-size: 12px; /* Adjust font size as needed */
-  font-weight: bold; /* Make text bold */
-  }
-  
   #hiViewDiv {
     padding: 0;
     margin: 0;
@@ -292,17 +381,6 @@ html, body {
     width: 100%;
     background-color: rgba(25, 250, 250, 0);
     z-index: 0;
-  }
-  
-  #hiText {   
-  position: relative; /* Ensure positioning context */
-  display: flex;
-  justify-content: flex-end; /* Align text to the right */
-  align-items: flex-start; /* Align text to the top */
-  padding: 5px; /* Add some padding for spacing */
-  color: black; /* Set text color */
-  font-size: 12px; /* Adjust font size as needed */
-  font-weight: bold; /* Make text bold */
   }
   
   #prViewDiv {

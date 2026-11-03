@@ -1,3 +1,6 @@
+import Point from "@arcgis/core/geometry/Point.js";
+import viewDefaults from "./view-defaults.js";
+
 const toggleButton = document.getElementById("drawer-toggle");
 const drawerContainer = document.getElementById("drawer-container");
 const drawerFrame = document.getElementById("drawer-iframe");
@@ -17,9 +20,11 @@ if (toggleButton && drawerContainer && drawerFrame) {
     if (!view) return;
     updatePosition();
     const isOpen = drawerContainer.classList.contains("drawer-open");
-    if (!isOpen || Math.abs(view.scale - 24000000) < 1) {
+    if (!isOpen || Math.abs(view.scale - viewDefaults.main.scale) < 1) {
       await view.goTo({
-        center: isOpen ? [-115, 36] : [-97, 38],
+        center: new Point(isOpen
+          ? { ...viewDefaults.main.drawerOpenCenter, spatialReference: view.spatialReference }
+          : viewDefaults.main.center),
         scale: view.scale,
       }, { animate: false });
     }

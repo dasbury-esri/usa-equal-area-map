@@ -34,8 +34,12 @@
     "@arcgis/core": "^4.32.10",
     "@arcgis/map-components": "^4.32.14",
     "@tanstack/react-query": "^5.74.4",
+    "d3-geo": "^3.1.1",
     "fetch-blob": "^4.0.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "three": "^0.187.0",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   }
 }

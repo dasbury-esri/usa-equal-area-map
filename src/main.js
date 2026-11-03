@@ -13,7 +13,19 @@ import ScaleBar from "@arcgis/core/widgets/ScaleBar.js";
 import Graphic from "@arcgis/core/Graphic.js";
 import * as reactiveUtils from "@arcgis/core/core/reactiveUtils.js";
 import * as promiseUtils from "@arcgis/core/core/promiseUtils.js";
+import viewDefaults from "./view-defaults.js";
 import "./style.css";
+
+const globeTrial = new URLSearchParams(window.location.search).get("overview") === "globes";
+if (globeTrial) {
+  document.body.classList.add("globe-trial");
+  const drawerFrame = document.getElementById("drawer-iframe");
+  if (drawerFrame) {
+    const drawerURL = new URL(drawerFrame.src);
+    drawerURL.searchParams.set("overview", "globes");
+    drawerFrame.src = drawerURL.href;
+  }
+}
 
 function disableDefaultPopupActions(view) {
   reactiveUtils.watch(() => view.popup?.viewModel, (viewModel) => {
@@ -61,6 +73,120 @@ function connectScaleViews(views, isMainPage) {
   }
 }
 
+function connectZoomAnchor(view, defaults) {
+  let manualCenter = null;
+  let panning = false;
+  const anchor = projectOperator.execute(new Point({
+    ...defaults.zoomAnchor,
+    spatialReference: { wkid: 4326 },
+  }), view.spatialReference);
+  const centerAtScale = () => {
+    const progress = Math.max(0, Math.min(1,
+      (defaults.scale - view.scale) / (defaults.scale - viewDefaults.zoomAnchorScale)
+    ));
+    return new Point({
+      x: defaults.center.x + (anchor.x - defaults.center.x) * progress,
+      y: defaults.center.y + (anchor.y - defaults.center.y) * progress,
+      spatialReference: view.spatialReference,
+    });
+  };
+  const startManualPan = () => {
+    panning = true;
+    manualCenter = view.center.clone();
+  };
+  view.addHandles([
+    view.on("drag", (event) => {
+      if (event.action === "update" && event.button === 0) startManualPan();
+    }),
+    view.on("key-down", (event) => {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+        startManualPan();
+      }
+    }),
+    view.on("mouse-wheel", () => { panning = false; }),
+    reactiveUtils.watch(() => view.center, () => {
+      if (panning) manualCenter = view.center.clone();
+    }, { sync: true }),
+    reactiveUtils.watch(() => view.stationary, (stationary) => {
+      if (stationary && panning) {
+        manualCenter = view.center.clone();
+        panning = false;
+      }
+    }, { sync: true }),
+  ]);
+  view.addHandles(reactiveUtils.watch(() => view.scale, () => {
+    panning = false;
+    const center = manualCenter ?? centerAtScale();
+    if (Math.hypot(view.center.x - center.x, view.center.y - center.y) > 1e-6) {
+      view.center = center;
+    }
+  }, { sync: true }));
+  return () => {
+    manualCenter = null;
+    panning = false;
+    return centerAtScale();
+  };
+}
+
+function addExtentLeader(overview, inset, graphic) {
+  if (globeTrial) return;
+  const namespace = "http://www.w3.org/2000/svg";
+  const overlay = document.createElementNS(namespace, "svg");
+  overlay.classList.add("extent-leader");
+  overlay.dataset.inset = inset.container.id;
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.setAttribute("focusable", "false");
+  const line = document.createElementNS(namespace, "line");
+  line.setAttribute("visibility", "hidden");
+  overlay.append(line);
+  document.body.append(overlay);
+  const render = () => {
+    const extent = graphic.geometry;
+    if (!extent || !overview.width || !overview.height) {
+      line.setAttribute("visibility", "hidden");
+      return;
+    }
+    const midpoint = projectOperator.execute(new Point({
+      x: extent.xmax,
+      y: (extent.ymin + extent.ymax) / 2,
+      spatialReference: extent.spatialReference,
+    }), overview.spatialReference);
+    const target = midpoint && overview.toScreen(midpoint);
+    if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y)
+        || target.x < 0 || target.x > overview.width
+        || target.y < 0 || target.y > overview.height) {
+      line.setAttribute("visibility", "hidden");
+      return;
+    }
+    const bounds = overview.container.getBoundingClientRect();
+    const panel = inset.container.getBoundingClientRect();
+    Object.assign(overlay.style, {
+      left: `${bounds.left}px`,
+      top: `${bounds.top}px`,
+      width: `${overview.width}px`,
+      height: `${overview.height}px`,
+    });
+    line.setAttribute("x1", panel.left + panel.width / 4 - bounds.left);
+    line.setAttribute("y1", Math.min(overview.height, panel.top - bounds.top));
+    line.setAttribute("x2", target.x);
+    line.setAttribute("y2", target.y);
+    line.setAttribute("visibility", "visible");
+  };
+  const handle = reactiveUtils.watch(
+    () => [graphic.geometry, overview.center, overview.scale, overview.rotation],
+    render,
+    { initial: true }
+  );
+  const observer = new ResizeObserver(render);
+  observer.observe(overview.container);
+  observer.observe(inset.container);
+  overview.addHandles({ remove() {
+    handle.remove();
+    observer.disconnect();
+    overlay.remove();
+  } });
+}
+
 const App =  () => {
     return projectOperator.load().then(async () => {
         if (projectOperator.isLoaded()) {
@@ -81,10 +207,10 @@ const App =  () => {
     // Lambert Equal Area projection for Hawaii map
     var hiSR = new SpatialReference(
         'PROJCS["Lambert Azimuthal Equal Area_Hawaii",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-156.0],PARAMETER["Latitude_Of_Origin",20.0],UNIT["Meter",1.0]]');
-    // Lambert Equal Area Projection for Puerto Rico map
-/*    var prSR = new SpatialReference(
+    // Lambert Equal Area Projection for Puerto Rico/US Virgin Islands map
+    var prSR = new SpatialReference(
         'PROJCS["Lambert Azimuthal Equal Area_PR_VI",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-65.5],PARAMETER["Latitude_Of_Origin",18.0],UNIT["Meter",1.0]]');
-*/    // Lambert Equal Area Projection for Guam/Northern Marianas map
+    // Lambert Equal Area Projection for Guam/Northern Marianas map
     var guSR = new SpatialReference(
         'PROJCS["Lambert Azimuthal Equal Area_GU_MP",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",145.0],PARAMETER["Latitude_Of_Origin",16.0],UNIT["Meter",1.0]]');
     // Lambert Equal Area Projection for American Samoa map
@@ -93,6 +219,30 @@ const App =  () => {
     // Lambert Equal Area Projection for Overview map
     var overviewSR = new SpatialReference(
         'PROJCS["Lambert Azimuthal Equal Area_US_global_extent",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-148.0],PARAMETER["Latitude_Of_Origin",17.25],UNIT["Meter",1.0]]');
+    }
+
+    {
+    // Albers Equal Area Projection for continental US
+    var conusAlbersSR = new SpatialReference(
+      'PROJCS["Albers Equal Area_US",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-96.0],PARAMETER["Standard_Parallel_1",29.5],PARAMETER["Standard_Parallel_2",45.5],PARAMETER["Latitude_Of_Origin",23.0],UNIT["Meter",1.0]]');
+    // Albers Equal Area Projection for Alaska map
+    var akAlbersSR = new SpatialReference(
+      'PROJCS["Albers Equal Area_AK",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-154.0],PARAMETER["Standard_Parallel_1",55.0],PARAMETER["Standard_Parallel_2",65.0],PARAMETER["Latitude_Of_Origin",50.0],UNIT["Meter",1.0]]');
+    // Albers Equal Area Projection for Hawaii map
+    var hiAlbersSR = new SpatialReference(
+      'PROJCS["Albers Equal Area_HI",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-157.0],PARAMETER["Standard_Parallel_1",8.0],PARAMETER["Standard_Parallel_2",18.0],PARAMETER["Latitude_Of_Origin",13.0],UNIT["Meter",1.0]]');
+    // Albers Equal Area Projection for Puerto Rico map
+    var prAlbersSR = new SpatialReference(
+      'PROJCS["Albers Equal Area_PR",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-66.5],PARAMETER["Standard_Parallel_1",18.0],PARAMETER["Standard_Parallel_2",20.0],PARAMETER["Latitude_Of_Origin",17.0],UNIT["Meter",1.0]]');
+    // Albers Equal Area Projection for Guam/Northern Marianas map
+    var guAlbersSR = new SpatialReference(
+      'PROJCS["Albers Equal Area_Guam",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",145.0],PARAMETER["Standard_Parallel_1",13.0],PARAMETER["Standard_Parallel_2",15.0],PARAMETER["Latitude_Of_Origin",12.0],UNIT["Meter",1.0]]');
+    // Albers Equal Area Projection for American Samoa map
+    var asAlbersSR = new SpatialReference(
+      'PROJCS["Albers Equal Area_AS",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-170.0],PARAMETER["Standard_Parallel_1",-14.0],PARAMETER["Standard_Parallel_2",-10.0],PARAMETER["Latitude_Of_Origin",-13.0],UNIT["Meter",1.0]]');
+    // Albers Equal Area Projection for Overview map
+    var overviewAlbersSR = new SpatialReference(
+      'PROJCS["Albers Equal Area_Overview",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-96.0],PARAMETER["Standard_Parallel_1",29.5],PARAMETER["Standard_Parallel_2",45.5],PARAMETER["Latitude_Of_Origin",23.0],UNIT["Meter",1.0]]');
     }
 
     var defaultLayer = new FeatureLayer({
@@ -224,6 +374,35 @@ const App =  () => {
         sharedViews: true,
       });
 
+      const contextLayer = new FeatureLayer({
+        id: "contextLayer",
+        portalItem: {
+          id: "42430a34a2b44c0da678ce60ce20dd31"
+        },
+        blendMode: "normal",
+        popupEnabled: false,
+      });
+
+      const usOutlyingAreasLayer = new FeatureLayer({
+        id: "usOutlyingAreasLayer",
+        portalItem: {
+          id: "bbda2d6bc77c495ab382e313f02888f1"
+        },
+        blendMode: "normal",
+        popupEnabled: false,
+        renderer: {
+          type: "simple",
+          symbol: {
+            type: "simple-fill",
+            color: [220, 40, 40, 1],
+            outline: {
+              color: [170, 20, 20, 1],
+              width: 0.5
+            }
+          }
+        },
+      });
+
       var oceanLayer = new FeatureLayer({
         id: "oceanLayer",
         portalItem:{
@@ -246,20 +425,14 @@ const App =  () => {
     // If no parameters are specified in the url, display the default map
     var layer = defaultLayer;
     var layerMap = new Map({
-      layers: [oceanLayer,latlongLayer, latlong180Layer, backgroundLayer, usStatesLayer, layer, airportGrounds, airportRunways] //imageryLayer] //oceanLayer,
+      layers: [oceanLayer,latlongLayer, latlong180Layer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer, airportGrounds, airportRunways] //imageryLayer] //oceanLayer,
     });
     var map = layerMap;
-    var scale = 24000000;
+    var scale = viewDefaults.main.scale;
     if (document.getElementById("mainViewDiv")) {
     // CONUS map
     // Set the center point for the view
-    let conusViewCenterPt = new Point({
-      x: -97,
-      y: 38,
-      spatialReference: {
-      wkid: 4326  
-      }
-  });
+    let conusViewCenterPt = new Point(viewDefaults.main.center);
   const mainView = new MapView({
       container: "mainViewDiv",
       map: map,
@@ -274,6 +447,7 @@ const App =  () => {
       },
       center: conusViewCenterPt,
       scale: scale,
+      rotation: viewDefaults.main.rotation,
       spatialReference: conusSR,
       ui: {
         components: []
@@ -317,17 +491,17 @@ const App =  () => {
     }, { initial: true });
     disableDefaultPopupActions(mainView);
     connectScaleViews([mainView], true);
+    if (globeTrial) {
+      const { addLocatorGlobe } = await import("./locator-globe.js");
+      addLocatorGlobe(mainView, "Continental US");
+    }
     return mainView;
     }
     if (!document.getElementById("akViewDiv")) return null;
-    var mainViewScale = scale;
     // Alaska map
     let akViewCenterPt = new Point({
-        x: -161.5,
-        y: 62.5,
-        spatialReference: {
-          wkid: 4326  
-        }
+        ...viewDefaults.alaska.center,
+        spatialReference: akSR
     });
     const akView = new MapView({
         container: "akViewDiv",
@@ -342,7 +516,8 @@ const App =  () => {
           }
         },
         center: akViewCenterPt,
-        scale: mainViewScale,
+        scale: viewDefaults.alaska.scale,
+        rotation: viewDefaults.alaska.rotation,
         spatialReference: akSR,
         ui: {
           components: []//["attribution"]
@@ -370,9 +545,8 @@ const App =  () => {
     });
     // Add widget to the bottom left corner of the view
     akView.ui.add(akScaleBar, {
-      position: "top-left"
+      position: "bottom-left"
     });
-    akView.ui.add(document.getElementById("akText"), "top-right");
 /*        let akCompass = new Compass({
       view: akView
     });
@@ -393,11 +567,8 @@ const App =  () => {
     });
 */    // Overview map
     let overViewCenterPt = new Point({
-        x: -154,
-        y: 23,
-        spatialReference: {
-          wkid: 4326  
-        }
+        ...viewDefaults.overview.center,
+        spatialReference: overviewSR
     });
 
     const overView = new MapView({
@@ -416,8 +587,8 @@ const App =  () => {
           }
         },
         center: overViewCenterPt,
-        scale: 110000000,
-        rotation: 20,
+        scale: viewDefaults.overview.scale,
+        rotation: viewDefaults.overview.rotation,
         constraints: {
           rotationEnabled: false
         },
@@ -430,9 +601,8 @@ const App =  () => {
       view: overView,
       unit: "dual" // Options are metric, imperial, or dual
     });
-    // Add widget to the bottom left corner of the view
     overView.ui.add(ovScaleBar, {
-      position: "bottom-left"
+      position: "bottom-right"
     });
     // Turn off unwanted layers in GU/MP
     overView.on("layerview-create", (event) => {
@@ -455,11 +625,8 @@ const App =  () => {
 
     // Guam/Northern Marianas map
     let guViewCenterPt = new Point({
-        x: 143,
-        y: 16.8,
-        spatialReference: {
-          wkid: 4326  
-        }
+        ...viewDefaults.guam.center,
+        spatialReference: guSR
     });
 
     const guView = new MapView({
@@ -475,7 +642,8 @@ const App =  () => {
           }
         },
         center: guViewCenterPt,
-        scale: mainViewScale,
+        scale: viewDefaults.guam.scale,
+        rotation: viewDefaults.guam.rotation,
         spatialReference: guSR,
         ui: {
           components: []//["attribution"]
@@ -506,11 +674,8 @@ const App =  () => {
     });
     // American Samoa map
     let asViewCenterPt = new Point({
-        x: -170,
-        y: -13.8,
-        spatialReference: {
-          wkid: 4326  
-        }
+        ...viewDefaults.americanSamoa.center,
+        spatialReference: asSR
     });
     const asView = new MapView({
         container: "asViewDiv",
@@ -525,7 +690,8 @@ const App =  () => {
           }
         },
         center: asViewCenterPt,
-        scale: mainViewScale,
+        scale: viewDefaults.americanSamoa.scale,
+        rotation: viewDefaults.americanSamoa.rotation,
         spatialReference: asSR,
         ui: {
           components: []//["attribution"]
@@ -556,11 +722,8 @@ const App =  () => {
     });
     // Hawaii map
     let hiViewCenterPt = new Point({
-        x: -158,
-        y: 20.5,
-        spatialReference: {
-          wkid: 4326  
-        }
+        ...viewDefaults.hawaii.center,
+        spatialReference: hiSR
     });
     const hiView = new MapView({
         container: "hiViewDiv",
@@ -575,7 +738,8 @@ const App =  () => {
           }
         },
         center: hiViewCenterPt,
-        scale: mainViewScale,
+        scale: viewDefaults.hawaii.scale,
+        rotation: viewDefaults.hawaii.rotation,
         spatialReference: hiSR,
         ui: {
           components: []//["attribution"]
@@ -622,25 +786,6 @@ const App =  () => {
         }            
         }).catch((error) => {
         console.error("Error loading the Alaska map view:", error);
-        });
-    overView.when(() => {
-        console.log("Overview Map and View are ready");
-        // Watch for changes to the scale property
-        reactiveUtils.watch(() => overView.scale, (newScale) => {
-          console.log("overView scale changed:", newScale);
-          // Update the overViewScaleValue span
-          const overViewScaleValueSpan = document.getElementById("overViewScaleValue");
-          if (overViewScaleValueSpan) {
-            overViewScaleValueSpan.textContent = Math.round(newScale).toLocaleString();
-          }
-        });
-        // Initialize the scale value on page load
-        const overViewScaleValueSpan = document.getElementById("overViewScaleValue");
-        if (overViewScaleValueSpan) {
-          overViewScaleValueSpan.textContent = Math.round(overView.scale).toLocaleString();
-        }  
-        }).catch((error) => {
-        console.error("Error loading the Overview map view:", error);
         });
     guView.when(() => {
         console.log("GU/MP Map and View are ready");
@@ -694,6 +839,7 @@ const App =  () => {
         }
       });
       overView.graphics.add(guExtentGraphic);
+      addExtentLeader(overView, guView, guExtentGraphic);
 
       reactiveUtils.watch(
         () => guView.extent,
@@ -741,6 +887,7 @@ const App =  () => {
           }
         });
         overView.graphics.add(asExtentGraphic);
+        addExtentLeader(overView, asView, asExtentGraphic);
 
         reactiveUtils.watch(
           () => asView.extent,
@@ -788,6 +935,7 @@ const App =  () => {
           }
         });
         overView.graphics.add(hiExtentGraphic);
+        addExtentLeader(overView, hiView, hiExtentGraphic);
 
         reactiveUtils.watch(
           () => hiView.extent,
@@ -804,7 +952,19 @@ const App =  () => {
         );
       }
       await Promise.all([akView, guView, asView, hiView].map((view) => view.when()));
+      const insetViews = [
+        [akView, "Alaska", viewDefaults.alaska],
+        [guView, "Guam / CNMI", viewDefaults.guam],
+        [asView, "American Samoa", viewDefaults.americanSamoa],
+        [hiView, "Hawaii", viewDefaults.hawaii],
+      ].map(([view, label, defaults]) => [view, label, connectZoomAnchor(view, defaults)]);
       connectScaleViews([akView, guView, asView, hiView], false);
+      if (globeTrial) {
+        const { addLocatorGlobe } = await import("./locator-globe.js");
+        for (const [view, label, centerAtScale] of insetViews) {
+          addLocatorGlobe(view, label, centerAtScale);
+        }
+      }
 };
 }).catch((error) => {
     console.error("Error loading projectOperator:", error);
