@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium } from "playwright";
+import { launchNativeBrowser } from "./native-browser.mjs";
 
 const base = process.env.TEST_URL ?? "http://127.0.0.1:5173/usa-equal-area-map/";
 const artifacts = mkdtempSync(join(tmpdir(), "usa-map-browser-"));
-const browser = await chromium.launch({ channel: "chrome", headless: true });
+const browser = await launchNativeBrowser();
 console.log(`Artifacts: ${artifacts}`);
 
 async function settled(page) {
@@ -24,7 +24,9 @@ try {
       const albers = query.includes("projection=albers");
       const globes = query.includes("overview=globes");
       const label = `${viewport.width}-${viewport.height}-${albers ? "albers" : "lambert"}-${globes ? "globes" : "standard"}`;
-      const page = await browser.newPage({ viewport });
+      const page = await browser.context.newPage();
+      await page.setViewportSize(viewport);
+      await page.bringToFront();
       const errors = [];
       const warnings = [];
       page.on("pageerror", error => errors.push(error.message));
@@ -34,6 +36,11 @@ try {
       await page.goto(base + query);
       await page.waitForFunction(() => window.framingPreviewReady);
       await page.evaluate(() => window.framingPreviewReady.then(() => true));
+      assert.deepEqual(await page.evaluate(() => ({
+        main: window.viewLifecycle.main.views.length,
+        pr: window.viewLifecycle.pr.views.length,
+        iframe: document.querySelector("#drawer-iframe").contentWindow.location.href,
+      })), { main: 1, pr: 0, iframe: "about:blank" });
       const initial = await page.evaluate(() => ({ scale: window.mainView.scale, center: window.mainView.center.toJSON() }));
       assert.ok(initial.scale < 24000000);
       await page.locator("#drawer-toggle").click();
@@ -123,8 +130,70 @@ try {
             && Math.hypot(view.center.x - center.x, view.center.y - center.y) < 1;
         }, opened.alaskaCenter);
       }
+      await page.evaluate(() => {
+        const views = [...window.viewLifecycle.main.views, ...window.viewLifecycle.pr.views,
+          ...window.viewLifecycle.drawer.views];
+        for (const view of views) view.center = view.center.clone().offset(12345, 6789);
+      });
+      await settled(page);
+      for (let cycle = 0; cycle < 2; cycle++) {
+        await page.evaluate(() => {
+          window.savedViews = [...window.viewLifecycle.main.views, ...window.viewLifecycle.pr.views,
+            ...window.viewLifecycle.drawer.views].map(view => ({
+              id: view.container.id, view, map: view.map, center: view.center.toJSON(),
+              scale: view.scale, rotation: view.rotation,
+            }));
+        });
+        const otherTab = await browser.context.newPage();
+        await otherTab.bringToFront();
+        await page.waitForFunction(() => document.hidden && window.savedViews.every(saved => saved.view.destroyed)
+          && window.viewLifecycle.main.views.length === 0 && window.viewLifecycle.pr.views.length === 0
+          && window.viewLifecycle.drawer.views.length === 0, null, { polling: 100 });
+        await page.bringToFront();
+        await page.waitForFunction(() => !document.hidden && window.mainView?.ready && window.prView?.ready);
+        await page.evaluate(() => window.viewsReady.then(() => true));
+        await settled(page);
+        const restoration = await page.evaluate(() => {
+          const views = [...window.viewLifecycle.main.views, ...window.viewLifecycle.pr.views,
+            ...window.viewLifecycle.drawer.views];
+          return window.savedViews.map(saved => {
+            const view = views.find(current => current.container.id === saved.id);
+            return { id: saved.id, newView: view !== saved.view, sameMap: view.map === saved.map,
+              centerError: Math.hypot(view.center.x - saved.center.x, view.center.y - saved.center.y),
+              scaleError: Math.abs(view.scale - saved.scale), rotationError: Math.abs(view.rotation - saved.rotation) };
+          });
+        });
+        for (const restored of restoration) assert.ok(restored.newView && restored.sameMap
+          && restored.centerError < 1 && restored.scaleError < 1 && restored.rotationError < 0.001, JSON.stringify(restored));
+        await otherTab.close();
+      }
       await page.locator("#drawer-toggle").click();
       await page.waitForFunction(scale => Math.abs(window.mainView.scale - scale) < 1, initial.scale);
+      await page.waitForFunction(() => window.viewLifecycle.drawer.views.length === 0);
+      await page.locator("#pr-drawer-toggle").click();
+      await page.waitForFunction(() => window.viewLifecycle.pr.views.length === 0);
+      for (let cycle = 0; cycle < 2; cycle++) {
+        await page.locator("#drawer-toggle").click();
+        await page.locator("#pr-drawer-toggle").click();
+        await page.evaluate(() => window.viewsReady.then(() => true));
+        await settled(page);
+        await page.evaluate(() => { window.mainView.scale = 7000000; });
+        await page.waitForFunction(() => window.prView.scale === 7000000
+          && document.querySelector("#drawer-iframe").contentWindow.akView.scale === 7000000);
+        await page.locator("#pr-drawer-toggle").click();
+        await page.locator("#drawer-toggle").click();
+        await page.waitForFunction(() => window.viewLifecycle.pr.views.length === 0
+          && window.viewLifecycle.drawer.views.length === 0);
+      }
+      await page.evaluate(() => {
+        for (let cycle = 0; cycle < 6; cycle++) {
+          document.querySelector("#drawer-toggle").click();
+          document.querySelector("#pr-drawer-toggle").click();
+        }
+      });
+      await page.evaluate(() => window.viewsReady.then(() => true));
+      assert.equal(await page.evaluate(() => window.viewLifecycle.main.views.length
+        + window.viewLifecycle.pr.views.length + window.viewLifecycle.drawer.views.length), 1);
       assert.deepEqual(errors, []);
       assert.deepEqual(warnings, []);
       console.log(JSON.stringify({ label, result: "PASS", ...opened }));

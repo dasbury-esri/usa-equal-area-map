@@ -1,5 +1,5 @@
 import Map from "@arcgis/core/Map.js";
-import MapView from "@arcgis/core/views/MapView.js";
+import { connectViewLifecycle } from "./view-lifecycle.js";
 //import WebMap from "@arcgis/core/WebMap.js";
 import FeatureLayer from "@arcgis/core/layers/FeatureLayer.js";
 //import WFSLayer from "@arcgis/core/layers/WFSLayer.js";
@@ -26,31 +26,34 @@ if (albersProj) document.body.classList.add("albers-view");
 if (globeTrial || albersProj || framingPreview) {
   const drawerFrame = document.getElementById("drawer-iframe");
   if (drawerFrame) {
-    const drawerURL = new URL(drawerFrame.src);
+    const drawerURL = new URL(drawerFrame.dataset.src, window.location.href);
     if (globeTrial) drawerURL.searchParams.set("overview", "globes");
     if (albersProj) drawerURL.searchParams.set("projection", "albers");
     if (framingPreview) drawerURL.searchParams.set("framing", "preview");
-    drawerFrame.src = drawerURL.href;
+    drawerFrame.dataset.src = drawerURL.href;
   }
 }
 
 function disableDefaultPopupActions(view) {
-  reactiveUtils.watch(() => view.popup?.viewModel, (viewModel) => {
+  view.addHandles(reactiveUtils.watch(() => view.popup?.viewModel, (viewModel) => {
     if (viewModel) viewModel.includeDefaultActions = false;
-  }, { initial: true });
+  }, { initial: true }));
 }
 
-function connectScaleViews(views, isMainPage) {
+function connectScaleViews(views, isMainPage, listen = true) {
   const frame = document.getElementById("drawer-iframe");
   const peer = isMainPage ? frame?.contentWindow : window.parent;
   let applyingScale = false;
+  const localViews = () => isMainPage
+    ? [window.mainView, window.prView].filter(view => view && !view.destroyed)
+    : views;
   const canShareScale = () => !framingPreview || (isMainPage ? document : window.parent.document)
     .getElementById("drawer-container")?.classList.contains("drawer-open");
   const applyScale = (scale) => {
     if (!Number.isFinite(scale) || scale <= 0) return;
     applyingScale = true;
     try {
-      for (const view of views) {
+      for (const view of localViews()) {
         if (Math.abs(view.scale - scale) > scale * 1e-8) view.scale = scale;
       }
     } finally {
@@ -61,20 +64,24 @@ function connectScaleViews(views, isMainPage) {
     if (!canShareScale()) return;
     peer?.postMessage({ type: "usa-map-scale", scale }, window.location.origin);
   };
-  window.addEventListener("message", (event) => {
+  const onMessage = (event) => {
     if (event.origin !== window.location.origin || event.source !== peer) return;
     if (isMainPage && event.data?.type === "usa-map-ready") {
       sendScale(views[0].scale);
     } else if (event.data?.type === "usa-map-scale" && canShareScale()) {
       applyScale(event.data.scale);
     }
-  });
+  };
+  if (listen) {
+    window.addEventListener("message", onMessage);
+    views[0].addHandles({ remove() { window.removeEventListener("message", onMessage); } });
+  }
   for (const view of views) {
-    reactiveUtils.watch(() => view.scale, (scale) => {
+    view.addHandles(reactiveUtils.watch(() => view.scale, (scale) => {
       if (applyingScale || !Number.isFinite(scale) || scale <= 0) return;
       applyScale(scale);
       sendScale(scale);
-    }, { sync: true });
+    }, { sync: true }));
   }
   if (isMainPage) {
     sendScale(views[0].scale);
@@ -496,11 +503,11 @@ const App =  () => {
     });
     var map = layerMap;
     var scale = viewDefaults.main.scale;
-    if (document.getElementById("mainViewDiv")) {
+    const createMain = async (scope) => {
     // CONUS map
     // Set the center point for the view
     let conusViewCenterPt = new Point(viewDefaults.main.center);
-  const mainView = new MapView({
+  const mainView = scope.create({
       container: "mainViewDiv",
       map: map,
       popup: {
@@ -551,18 +558,29 @@ const App =  () => {
       });
     // Print the map scale to the console
     console.log("Scale: " + mainView.scale);
-    await mainView.when();
-    reactiveUtils.watch(() => mainView.scale, (newScale) => {
+    await scope.wait(mainView.when());
+    mainView.addHandles(reactiveUtils.watch(() => mainView.scale, (newScale) => {
       const label = document.getElementById("mainViewScaleValue");
       if (label) label.textContent = Math.round(newScale).toLocaleString();
-    }, { initial: true });
+    }, { initial: true }));
     disableDefaultPopupActions(mainView);
-    const prView = new MapView({
+    connectScaleViews([mainView], true);
+    if (globeTrial) {
+      const { addLocatorGlobe } = await scope.wait(import("./locator-globe.js"));
+      addLocatorGlobe(mainView, "Continental US");
+    }
+    const { connectFramingPreview } = await scope.wait(import("./framing-preview.js"));
+    window.framingPreviewReady = connectFramingPreview(mainView, scope.restored("mainViewDiv"));
+    await scope.wait(window.framingPreviewReady);
+    return mainView;
+    };
+    const createPr = async (scope) => {
+    const prView = scope.create({
       container: "prViewDiv",
       map,
       spatialReference: albersProj ? prAlbersSR : prSR,
       center: new Point(viewDefaults.puertoRico.center),
-      scale: mainView.scale,
+      scale: window.mainView.scale,
       rotation: viewDefaults.puertoRico.rotation,
       popup: {
         highlightEnabled: false,
@@ -580,23 +598,23 @@ const App =  () => {
     prView.ui.add(new ScaleBar({ view: prView, unit: "dual" }), "bottom-left");
     disableDefaultPopupActions(prView);
     const prCenterAtScale = connectZoomAnchor(prView, viewDefaults.puertoRico);
+    await scope.wait(prView.when());
+    prView.scale = window.mainView.scale;
     connectPrExtent(prView, true);
-    connectScaleViews([mainView, prView], true);
+    connectScaleViews([prView], true, false);
     if (globeTrial) {
-      const { addLocatorGlobe } = await import("./locator-globe.js");
-      addLocatorGlobe(mainView, "Continental US");
-      await prView.when();
+      const { addLocatorGlobe } = await scope.wait(import("./locator-globe.js"));
       addLocatorGlobe(prView, "Puerto Rico / USVI", prCenterAtScale);
     }
-    return mainView;
-    }
-    if (!document.getElementById("akViewDiv")) return null;
+    return prView;
+    };
+    const createDrawer = async (scope) => {
     // Alaska map
     let akViewCenterPt = new Point({
         ...viewDefaults.alaska.center,
         spatialReference: akSR
     });
-    const akView = new MapView({
+    const akView = scope.create({
         container: "akViewDiv",
         map: map,
         popup: {
@@ -664,7 +682,7 @@ const App =  () => {
         spatialReference: overviewSR
     });
 
-    const overView = globeTrial ? null : new MapView({
+    const overView = globeTrial ? null : scope.create({
         container: "overViewDiv",
         map: map,
         background: { 
@@ -724,7 +742,7 @@ const App =  () => {
         spatialReference: guSR
     });
 
-    const guView = new MapView({
+    const guView = scope.create({
         container: "guViewDiv",
         map: map,
         popup: {
@@ -772,7 +790,7 @@ const App =  () => {
         ...viewDefaults.americanSamoa.center,
         spatialReference: asSR
     });
-    const asView = new MapView({
+    const asView = scope.create({
         container: "asViewDiv",
         map: map,
         popup: {
@@ -820,7 +838,7 @@ const App =  () => {
         ...viewDefaults.hawaii.center,
         spatialReference: hiSR
     });
-    const hiView = new MapView({
+    const hiView = scope.create({
         container: "hiViewDiv",
         map: map,
         popup: {
@@ -863,17 +881,18 @@ const App =  () => {
         event.layerView.visible = false;
       }  
     });
+    await scope.wait(Promise.all([akView, overView, guView, asView, hiView].filter(Boolean).map(view => view.when())));
     akView.when(() => {
         console.log("Alaska Map and View are ready");
         // Watch for changes to the scale property
-        reactiveUtils.watch(() => akView.scale, (newScale) => {
+        akView.addHandles(reactiveUtils.watch(() => akView.scale, (newScale) => {
           console.log("akView scale changed:", newScale);
           // Update the akScaleValue span
           const akScaleValueSpan = document.getElementById("akScaleValue");
           if (akScaleValueSpan) {
             akScaleValueSpan.textContent = Math.round(newScale).toLocaleString();
           }
-        });
+        }));
         // Initialize the scale value on page load
         const akScaleValueSpan = document.getElementById("akScaleValue");
         if (akScaleValueSpan) {
@@ -923,7 +942,7 @@ const App =  () => {
       overView.graphics.add(guExtentGraphic);
       addExtentLeader(overView, guView, guExtentGraphic);
 
-      reactiveUtils.watch(
+      overView.addHandles(reactiveUtils.watch(
         () => guView.extent,
         (extent) => {
           guExtentGraphic.geometry = extent;
@@ -931,7 +950,7 @@ const App =  () => {
         {
           initial: true
         }
-      );
+      ));
     }     
     // Add an extent box to the overview map from the AS map
     overView?.when(() => {
@@ -954,7 +973,7 @@ const App =  () => {
         overView.graphics.add(asExtentGraphic);
         addExtentLeader(overView, asView, asExtentGraphic);
 
-        reactiveUtils.watch(
+        overView.addHandles(reactiveUtils.watch(
           () => asView.extent,
           (extent) => {
             asExtentGraphic.geometry = extent;
@@ -962,7 +981,7 @@ const App =  () => {
           {
             initial: true
           }
-        );
+        ));
       }
     // Add an extent box to the overview map from the HI map
     overView?.when(() => {
@@ -985,7 +1004,7 @@ const App =  () => {
         overView.graphics.add(hiExtentGraphic);
         addExtentLeader(overView, hiView, hiExtentGraphic);
 
-        reactiveUtils.watch(
+        overView.addHandles(reactiveUtils.watch(
           () => hiView.extent,
           (extent) => {
             hiExtentGraphic.geometry = extent;
@@ -993,11 +1012,10 @@ const App =  () => {
           {
             initial: true
           }
-        );
+        ));
       }
       if (overView) connectPrExtent(overView, false);
 
-      await Promise.all([akView, guView, asView, hiView].map((view) => view.when()));
       const insetViews = [
         [akView, "Alaska", { ...viewDefaults.alaska, center: akViewCenterPt.toJSON() }],
         [guView, "Guam / CNMI", { ...viewDefaults.guam, center: guViewCenterPt.toJSON() }],
@@ -1005,18 +1023,16 @@ const App =  () => {
         [hiView, "Hawaii", { ...viewDefaults.hawaii, center: hiViewCenterPt.toJSON() }],
       ].map(([view, label, defaults]) => [view, label, connectZoomAnchor(view, defaults)]);
       connectScaleViews([akView, guView, asView, hiView], false);
-      if (framingPreview) {
-        akView.addHandles(reactiveUtils.watch(() => [akView.width, akView.height], () => {
-          window.frameElement?.dispatchEvent(new Event("framing-preview-resize"));
-        }));
-      }
       if (globeTrial) {
-        const { addLocatorGlobe } = await import("./locator-globe.js");
+        const { addLocatorGlobe } = await scope.wait(import("./locator-globe.js"));
         for (const [view, label, centerAtScale] of insetViews) {
           addLocatorGlobe(view, label, centerAtScale);
         }
       }
-};
+      return akView;
+        };
+        return connectViewLifecycle({ createMain, createPr, createDrawer });
+    };
 }).catch((error) => {
     console.error("Error loading projectOperator:", error);
 });
@@ -1024,10 +1040,3 @@ const App =  () => {
 export default App;
 
 window.mainViewReady = App();
-if (framingPreview && document.getElementById("mainViewDiv")) {
-  window.framingPreviewReady = window.mainViewReady.then(async (view) => {
-    const { connectFramingPreview } = await import("./framing-preview.js");
-    return connectFramingPreview(view);
-  });
-  window.framingPreviewReady.catch(error => console.error("Could not initialize framing preview", error));
-}

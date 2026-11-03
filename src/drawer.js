@@ -16,12 +16,11 @@ if (toggleButton && drawerContainer && drawerFrame) {
     }
   };
   const updateMap = async () => {
-    const view = await window.mainViewReady;
+    await window.mainViewReady;
+    const view = await window.updateMapViews({ reframe: true });
     if (!view) return;
     updatePosition();
     if (window.framingPreviewReady) {
-      const preview = await window.framingPreviewReady;
-      preview.update();
       return;
     }
     const isOpen = drawerContainer.classList.contains("drawer-open");
@@ -50,6 +49,7 @@ if (toggleButton && drawerContainer && drawerFrame) {
     });
   });
   new ResizeObserver(updatePosition).observe(drawerContainer);
+  window.addEventListener("map-views-ready", updatePosition);
 }
 
 const prDrawer = document.getElementById("pr-drawer");
@@ -65,6 +65,8 @@ if (prDrawer && prToggle && prContainer) {
     const label = `${isOpen ? "Hide" : "Show"} Puerto Rico and US Virgin Islands`;
     prToggle.setAttribute("aria-label", label);
     prToggle.title = label;
+    Promise.resolve(window.mainViewReady).then(() => window.updateMapViews())
+      .catch(error => console.error("Could not update Puerto Rico view", error));
   };
   prToggle.addEventListener("click", () => {
     setOpen(!prDrawer.classList.contains("drawer-open"));

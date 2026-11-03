@@ -23,17 +23,23 @@ function setCenter(view, center) {
   view.container.ownerDocument.defaultView.framingPreviewCenters?.set(view, view.center.clone());
 }
 
-export async function connectFramingPreview(mainView) {
+export async function connectFramingPreview(mainView, restored = false) {
   const frame = document.getElementById("drawer-iframe");
   const drawer = document.getElementById("drawer-container");
   const albers = new URLSearchParams(window.location.search).get("projection") === "albers";
   const bounds = albers ? albersBounds : lambertBounds;
-  let alaskaView;
-  let sizeHandle;
   const update = () => {
-    if (![mainView, alaskaView].every(view => view?.ready && view.width > padding * 2
-        && view.height > padding * 2 && view.resolution > 0)) return;
+    if (!mainView.ready || mainView.destroyed || mainView.width <= padding * 2
+        || mainView.height <= padding * 2 || mainView.resolution <= 0) return;
     const mainFit = fit(bounds.conus, mainView);
+    const isOpen = drawer.classList.contains("drawer-open");
+    if (!isOpen) {
+      mainView.scale = mainFit.scale;
+      setCenter(mainView, mainFit);
+      return;
+    }
+    const alaskaView = frame.contentWindow?.akView;
+    if (!alaskaView?.ready || alaskaView.destroyed || !alaskaView.resolution) return;
     const placement = fitPlacement({
       width: mainView.width,
       height: mainView.height,
@@ -42,7 +48,6 @@ export async function connectFramingPreview(mainView) {
       alaskaHeight: alaskaView.height,
     }, bounds);
     const sharedScale = placement.resolution * alaskaView.scale / alaskaView.resolution;
-    const isOpen = drawer.classList.contains("drawer-open");
     alaskaView.scale = sharedScale;
     mainView.scale = isOpen ? sharedScale : mainFit.scale;
     setCenter(alaskaView, placement.alaska);
@@ -56,31 +61,7 @@ export async function connectFramingPreview(mainView) {
       setCenter(overview, overviewFit);
     }
   };
-  const initializeDrawer = async () => {
-    while (frame.contentDocument?.readyState !== "complete"
-        || new URL(frame.contentWindow.location.href).searchParams.get("framing") !== "preview") {
-      await new Promise(resolve => frame.addEventListener("load", resolve, { once: true }));
-    }
-    await frame.contentWindow.mainViewReady;
-    alaskaView = frame.contentWindow.akView;
-    if (!alaskaView) throw new Error("Framing preview requires the Alaska view");
-    await reactiveUtils.whenOnce(() => mainView.ready && mainView.resolution > 0);
-    await alaskaView.when();
-    sizeHandle?.remove();
-    sizeHandle = reactiveUtils.watch(
-      () => [mainView.width, mainView.height],
-      update
-    );
-    update();
-  };
-  await initializeDrawer();
-  const onLoad = () => initializeDrawer().catch(error => console.error("Could not reset framing preview", error));
-  frame.addEventListener("load", onLoad);
-  frame.addEventListener("framing-preview-resize", update);
-  mainView.addHandles({ remove() {
-    sizeHandle?.remove();
-    frame.removeEventListener("load", onLoad);
-    frame.removeEventListener("framing-preview-resize", update);
-  } });
+  mainView.addHandles(reactiveUtils.watch(() => [mainView.width, mainView.height], update));
+  if (!restored) update();
   return { update };
 }
