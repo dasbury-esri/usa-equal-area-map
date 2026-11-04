@@ -104,8 +104,6 @@ export class CanvasRenderer {
     this.uniforms = Object.fromEntries(["uResolution", "uCenter", "uViewport", "uMode", "uWidth", "uSize", "uColor", "uOutline"]
       .map(name => [name, this.gl.getUniformLocation(this.program, name)]));
     this.vao = this.gl.createVertexArray();
-    this.scratch = this.gl.createBuffer();
-    this.scratchBytes = 0;
     this.panes = options.panes.map(id => {
       const parameters = projectionParameters(projections[options.projection][id]);
       return { id, parameters, center: parameters.converter.forward(HOME_CENTERS[id]),
@@ -143,12 +141,6 @@ export class CanvasRenderer {
     }
     for (const layer of this.layers) this.gl.deleteBuffer(layer.buffer);
     this.layers = layers;
-    const scratchBytes = layers.reduce((maximum, layer) => layer.draws.reduce((size, draw) => Math.max(size, draw.count * 24), maximum), 0);
-    if (scratchBytes > this.scratchBytes) {
-      this.gl.bindBuffer(this.gl.COPY_WRITE_BUFFER, this.scratch);
-      this.gl.bufferData(this.gl.COPY_WRITE_BUFFER, scratchBytes, this.gl.DYNAMIC_COPY);
-      this.scratchBytes = scratchBytes;
-    }
     this.budget = budget;
     this.swipePair = resolveSwipe(this.layers.map(layer => layer.dataset), this.swipeSelection);
     if (this.swipePair) this.panes.filter(pane => !pane.element.querySelector(".swipe-divider")).forEach(pane => this.bindSwipe(pane));
@@ -169,7 +161,7 @@ export class CanvasRenderer {
     const gl = this.gl;
     if (gl.isContextLost()) return;
     const started = performance.now();
-    this.drawStats = { calls: 0, instances: 0, availableInstances: 0, copiedBytes: 0 };
+    this.drawStats = { calls: 0, instances: 0, availableInstances: 0 };
     const ratio = devicePixelRatio;
     const width = Math.round(innerWidth * ratio);
     const height = Math.round(innerHeight * ratio);
@@ -224,29 +216,16 @@ export class CanvasRenderer {
             gl.stencilFunc(gl.EQUAL, 0, 255);
             gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
           }
-          let offset = draw.offset;
-          let count = draw.count;
-          const complete = ranges.length === 1 && ranges[0].offset === draw.offset && ranges[0].count === draw.count;
-          if (!complete) {
-            gl.bindBuffer(gl.COPY_READ_BUFFER, layer.buffer);
-            gl.bindBuffer(gl.COPY_WRITE_BUFFER, this.scratch);
-            count = 0;
-            for (const range of ranges) {
-              gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, range.offset * 24, count * 24, range.count * 24);
-              count += range.count;
+          for (const range of ranges) {
+            for (let index = 0; index < 3; index++) {
+              gl.enableVertexAttribArray(index);
+              gl.vertexAttribPointer(index, 2, gl.FLOAT, false, 24, range.offset * 24 + index * 8);
+              gl.vertexAttribDivisor(index, 1);
             }
-            this.drawStats.copiedBytes += count * 24;
-            offset = 0;
+            gl.drawArraysInstanced(draw.mode === 0 ? gl.TRIANGLES : gl.TRIANGLE_STRIP, 0, draw.mode === 0 ? 3 : 4, range.count);
+            this.drawStats.calls++;
+            this.drawStats.instances += range.count;
           }
-          gl.bindBuffer(gl.ARRAY_BUFFER, complete ? layer.buffer : this.scratch);
-          for (let index = 0; index < 3; index++) {
-            gl.enableVertexAttribArray(index);
-            gl.vertexAttribPointer(index, 2, gl.FLOAT, false, 24, offset * 24 + index * 8);
-            gl.vertexAttribDivisor(index, 1);
-          }
-          gl.drawArraysInstanced(draw.mode === 0 ? gl.TRIANGLES : gl.TRIANGLE_STRIP, 0, draw.mode === 0 ? 3 : 4, count);
-          this.drawStats.calls++;
-          this.drawStats.instances += count;
           gl.disable(gl.STENCIL_TEST);
         }
       }

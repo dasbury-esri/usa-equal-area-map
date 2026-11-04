@@ -156,7 +156,11 @@ try {
           timings: window.webmapCanvas.timings,
           symbolDraws: window.webmapCanvas.renderer.layers.reduce((sum, layer) => sum + layer.draws.length, 0),
           drawStats: window.webmapCanvas.renderer.drawStats,
-          scratchBytes: window.webmapCanvas.renderer.scratchBytes,
+          gpuGeometryBytes: window.webmapCanvas.renderer.layers.reduce((sum, layer) => {
+            const gl = window.webmapCanvas.renderer.gl;
+            gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
+            return sum + gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE);
+          }, 0),
           uploadBytes: window.webmapCanvas.renderer.layers.reduce((sum, layer) => sum + layer.bytes, 0),
           vertices: window.webmapCanvas.datasets.map(data => ({ item: data.layer.portalItem.id, count: data.count, vertices: data.vertices, pages: data.pages })) } : null }), kind);
       const load = { kind, cache, ...timing, network: network.snapshot() };

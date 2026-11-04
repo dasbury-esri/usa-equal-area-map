@@ -196,6 +196,18 @@ export async function captureAreaBaseline(page) {
 }
 
 export async function verifyCulling(page) {
+  const memory = await page.evaluate(() => {
+    const renderer = window.webmapCanvas.renderer, gl = renderer.gl;
+    gl.copyBufferSubData = () => { throw new Error("Per-range rendering must not copy GPU buffers"); };
+    const bytes = renderer.layers.reduce((sum, layer) => {
+      gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
+      return sum + gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE);
+    }, 0);
+    return { bytes, declared: renderer.layers.reduce((sum, layer) => sum + layer.bytes, 0), hasScratch: "scratch" in renderer };
+  });
+  assert.equal(memory.hasScratch, false);
+  assert.equal(memory.bytes, memory.declared);
+  console.log("GPU GEOMETRY BUFFERS", memory);
   for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 1600 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     const result = await page.evaluate(() => {
@@ -219,7 +231,7 @@ export async function verifyCulling(page) {
     assert.equal(result.differences, 0, JSON.stringify({ viewport, result }));
     assert.ok(result.changed > 0);
     assert.ok(result.culled.instances < result.full.instances);
-    assert.ok(result.culled.calls <= result.full.calls);
+    assert.ok(result.culled.calls > result.full.calls);
     await page.screenshot({ path: `/tmp/usa-map-culling-${viewport.width}x${viewport.height}.png` });
     console.log("CULLING", viewport, result);
   }
