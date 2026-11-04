@@ -45,6 +45,9 @@ Independent ArcGIS comparisons at 1:1,000,000 and DPR 2 are below 0.04 device
 pixels for all tested points/panes. Native visual/performance acceptance remains
 pending. Explicit JSON geometry queries avoid an observed SDK coordinate-decoding
 failure for the DC district; source data is not edited.
+Step 5 adds synchronized A/B scissor clipping and accessible draggable dividers.
+Headless four-pane pixel, keyboard and pointer tests pass with one context and
+unchanged centers. Native comparison, performance and public tile research remain.
 
 ## Local Development
 

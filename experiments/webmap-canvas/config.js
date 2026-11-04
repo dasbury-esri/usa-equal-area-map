@@ -2,6 +2,14 @@ export const PANE_NAMES = Object.freeze({ conus: "Contiguous United States", ak:
 export const MIN_SCALE = 1000000;
 export const MAX_SCALE = 80000000;
 
+export function resolveSwipe(datasets, selection) {
+  if (!selection) return null;
+  const pair = selection.map(value => datasets.find(dataset => dataset.id === value || dataset.layer?.portalItem?.id === value)
+    ?? (/^\d+$/.test(value) ? datasets[Number(value)] : undefined));
+  if (pair.some(dataset => !dataset) || pair[0] === pair[1]) throw new Error("Swipe requires two distinct rendered layers (IDs or zero-based indexes).");
+  return pair;
+}
+
 export function parseOptions(search) {
   const params = new URLSearchParams(search);
   const webmap = params.get("webmap");

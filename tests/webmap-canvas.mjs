@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseOptions } from "../experiments/webmap-canvas/config.js";
+import { parseOptions, resolveSwipe } from "../experiments/webmap-canvas/config.js";
 import { createDownloader, flattenLayers, visibleAtScale } from "../experiments/webmap-canvas/data.js";
 import { compileRenderer } from "../experiments/webmap-canvas/renderers.js";
 import { continuousPath, densifyPath, polygonParts, triangulate } from "../experiments/webmap-canvas/geometry.js";
@@ -22,6 +22,14 @@ test("invalid options stop before requests", () => {
 });
 
 const marker = { type: "simple-marker", style: "circle", color: [20, 60, 80, 1] };
+test("swipe resolves rendered layer IDs, portal IDs and zero-based indexes", () => {
+  const datasets = [{ id: "first", layer: { portalItem: { id: "portal" } } }, { id: "second" }];
+  assert.deepEqual(resolveSwipe(datasets, ["0", "second"]), datasets);
+  assert.deepEqual(resolveSwipe(datasets, ["portal", "1"]), datasets);
+  assert.equal(resolveSwipe(datasets, null), null);
+  assert.throws(() => resolveSwipe(datasets, ["first", "0"]));
+  assert.throws(() => resolveSwipe(datasets, ["first", "missing"]));
+});
 function fakeLayer(count = 3) {
   const calls = [];
   return { calls, type: "feature", visible: true, opacity: 0.8, objectIdField: "OID", definitionExpression: "KEEP = 1",

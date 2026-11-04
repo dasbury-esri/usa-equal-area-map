@@ -1,7 +1,7 @@
 import geodesic from "geographiclib-geodesic";
-import { createElement, LocateFixed } from "lucide";
+import { createElement, LocateFixed, GripVertical } from "lucide";
 import { projections } from "../../src/projections.js";
-import { MIN_SCALE, MAX_SCALE, PANE_NAMES } from "./config.js";
+import { MIN_SCALE, MAX_SCALE, PANE_NAMES, resolveSwipe } from "./config.js";
 import { visibleAtScale } from "./data.js";
 import { prepareGeometry } from "./geometry.js";
 import { projectionGLSL, projectionParameters, createProgram, setProjection } from "./projection.js";
@@ -93,6 +93,8 @@ export class CanvasRenderer {
     this.scale = options.scale;
     this.report = report;
     this.layers = [];
+    this.swipeSelection = options.swipe;
+    this.swipeFraction = 0.5;
     this.frame = null;
     this.frameTimes = [];
     this.gl = canvas.getContext("webgl2", { alpha: false, antialias: true, stencil: true });
@@ -128,6 +130,8 @@ export class CanvasRenderer {
       }
     }
     this.budget = budget;
+    this.swipePair = resolveSwipe(this.layers.map(layer => layer.dataset), this.swipeSelection);
+    if (this.swipePair) this.panes.forEach(pane => this.bindSwipe(pane));
     this.draw();
     await new Promise(resolve => requestAnimationFrame(() => { this.gl.finish(); resolve(); }));
   }
@@ -165,8 +169,14 @@ export class CanvasRenderer {
       setProjection(gl, this.program, pane.parameters);
       gl.uniform2fv(location("uCenter"), pane.center);
       gl.uniform2f(location("uViewport"), bounds.width, bounds.height);
-      for (const layer of this.layers) {
+      const layers = this.swipePair ? [...this.layers.filter(layer => !this.swipePair.includes(layer.dataset)),
+        ...this.swipePair.map(dataset => this.layers.find(layer => layer.dataset === dataset))] : this.layers;
+      for (const layer of layers) {
         if (!visibleAtScale(layer.dataset, this.scale)) continue;
+        const side = this.swipePair?.indexOf(layer.dataset) ?? -1;
+        const split = Math.round(rect.width * this.swipeFraction);
+        gl.scissor(rect.x + (side === 1 ? split : 0), rect.y,
+          side === 0 ? split : side === 1 ? rect.width - split : rect.width, rect.height);
         gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
         for (const draw of layer.draws) {
           if (!draw.count) continue;
@@ -242,6 +252,53 @@ export class CanvasRenderer {
     pane.center[0] -= deltaX * metersPerPixel(this.scale);
     pane.center[1] += deltaY * metersPerPixel(this.scale);
     this.requestDraw();
+  }
+
+  setSwipe(fraction) {
+    this.swipeFraction = Math.max(0, Math.min(1, fraction));
+    for (const pane of this.panes) {
+      const divider = pane.element.querySelector(".swipe-divider");
+      if (!divider) continue;
+      const percentage = Math.round(this.swipeFraction * 100);
+      divider.style.left = `${this.swipeFraction * 100}%`;
+      divider.setAttribute("aria-valuenow", percentage);
+      divider.setAttribute("aria-valuetext", `${this.swipePair[0].title} ${percentage}%, ${this.swipePair[1].title} ${100 - percentage}%`);
+    }
+    this.requestDraw();
+  }
+
+  bindSwipe(pane) {
+    const divider = document.createElement("div");
+    divider.className = "swipe-divider";
+    divider.tabIndex = 0;
+    divider.setAttribute("role", "slider");
+    divider.setAttribute("aria-label", `Swipe ${PANE_NAMES[pane.id]}`);
+    divider.setAttribute("aria-orientation", "horizontal");
+    divider.setAttribute("aria-valuemin", "0");
+    divider.setAttribute("aria-valuemax", "100");
+    divider.title = `${this.swipePair[0].title} / ${this.swipePair[1].title}`;
+    divider.append(createElement(GripVertical, { width: 24, height: 32 }));
+    pane.element.append(divider);
+    const move = event => {
+      const bounds = pane.element.getBoundingClientRect();
+      this.setSwipe((event.clientX - bounds.left) / bounds.width);
+    };
+    divider.addEventListener("pointerdown", event => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      divider.focus();
+      divider.setPointerCapture(event.pointerId);
+      move(event);
+    });
+    divider.addEventListener("pointermove", event => { if (divider.hasPointerCapture(event.pointerId)) move(event); });
+    divider.addEventListener("keydown", event => {
+      const step = event.shiftKey ? 0.1 : 0.01;
+      const values = { ArrowLeft: this.swipeFraction - step, ArrowRight: this.swipeFraction + step, Home: 0, End: 1 };
+      if (!Object.hasOwn(values, event.key)) return;
+      event.preventDefault();
+      this.setSwipe(values[event.key]);
+    });
+    this.setSwipe(this.swipeFraction);
   }
 
   bindPane(pane) {

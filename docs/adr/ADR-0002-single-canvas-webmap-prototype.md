@@ -82,7 +82,7 @@ services provide no vertex count. See the public
 
 ### Remaining Steps
 
-Swipe, native comparison, performance and tile discovery results are pending.
+Native comparison, performance and tile discovery results are pending.
 No final prototype acceptance or performance improvement is claimed.
 
 ## Step 3: Data Contract and Results
@@ -171,3 +171,20 @@ Dependencies: earcut 3.2.4, proj4 2.22.0, @terraformer/arcgis 2.2.2,
 geographiclib-geodesic 2.2.0 and lucide 1.68.0. Installation audit reported zero
 vulnerabilities; focused lint and eight Node tests pass. New screenshots and
 runtime artifacts remain temporary, not repository assets.
+
+## Step 5: Shared Swipe
+
+`swipe=A,B` resolves each token by layer ID, then portal item ID, then zero-based
+index in the successfully rendered layer list. Invalid/missing targets or two
+tokens resolving to the same layer stop initialization with a message. Other
+layers remain context beneath the pair in their original relative order. A is
+scissored left and B right, including their outlines, using the same rounded
+device-pixel boundary. No geometry upload or additional canvas is needed.
+
+Every pane has a DOM slider with a shared initial fraction of 0.5. Pointer drag
+and ArrowLeft/ArrowRight adjust it; Shift changes the keyboard step from 1% to
+10%; Home/End reach 0%/100%. Accessible values include both layer titles. Dragging
+a divider does not pan the map. Four-pane two-color pixel assertions verify
+both sides and both endpoints; pointer/keyboard synchronization, unchanged
+centers and 1/1 live/created contexts pass headlessly. Nine unit tests pass.
+Screenshot: `/tmp/usa-map-swipe.png`. Native comparison remains Step 6.

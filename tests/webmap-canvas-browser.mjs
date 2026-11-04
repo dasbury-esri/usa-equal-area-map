@@ -50,6 +50,7 @@ async function run() {
     await page.close();
     const synthetic = await browser.newPage({ viewport: { width: 800, height: 600 }, hasTouch: true });
     await verifySymbolsAndPinch(synthetic);
+    await verifySwipe(synthetic);
     await synthetic.close();
   } finally { await browser.close(); }
 }
@@ -147,6 +148,59 @@ export async function verifySymbolsAndPinch(page) {
   assert.equal(final.contexts.created, 1);
   await cdp.detach();
   console.log("PASS circle/line symbols and two-pointer pinch");
+}
+
+export async function verifySwipe(page) {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.goto(`${base}experiments/webmap-canvas/?swipe=0,1`);
+  await page.waitForFunction(() => window.webmapCanvas?.status === "waiting");
+  await page.evaluate(async () => {
+    const { CanvasRenderer, HOME_CENTERS } = await import("/usa-equal-area-map/experiments/webmap-canvas/renderer.js");
+    const renderer = new CanvasRenderer(document.querySelector("canvas"), window.webmapCanvas.options, () => {});
+    window.webmapCanvas.renderer = renderer;
+    const features = Object.values(HOME_CENTERS).map(([longitude, latitude]) => ({ attributes: {}, geometry: { type: "polygon",
+      rings: [[[longitude - 5, latitude - 5], [longitude - 5, latitude + 5], [longitude + 5, latitude + 5],
+        [longitude + 5, latitude - 5], [longitude - 5, latitude - 5]]] } }));
+    await renderer.load([[240, 20, 20, 1], [20, 40, 240, 1]].map((color, index) => ({ id: `layer-${index}`, title: `Layer ${index}`,
+      visible: true, opacity: 1, ranges: [], features, renderer: { symbolFor: () => ({ type: "simple-fill", style: "solid", color }) } })));
+  });
+  const pixels = () => page.evaluate(() => {
+    const renderer = window.webmapCanvas.renderer;
+    renderer.draw();
+    return renderer.panes.map(pane => {
+      const bounds = pane.element.getBoundingClientRect();
+      return [-4, 4].map(offset => {
+        const pixel = new Uint8Array(4);
+        const gl = renderer.gl;
+        gl.readPixels(Math.round((bounds.left + bounds.width / 2 + offset) * devicePixelRatio),
+          gl.drawingBufferHeight - Math.round((bounds.top + bounds.height / 2) * devicePixelRatio), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        return [...pixel];
+      });
+    });
+  });
+  for (const [left, right] of await pixels()) { assert.ok(left[0] > 200 && left[2] < 100); assert.ok(right[2] > 200 && right[0] < 100); }
+  const slider = page.getByRole("slider", { name: "Swipe Alaska", exact: true });
+  await slider.focus();
+  await page.keyboard.press("ArrowLeft");
+  assert.deepEqual(await page.getByRole("slider").evaluateAll(sliders => sliders.map(slider => slider.getAttribute("aria-valuenow"))), ["49", "49", "49", "49"]);
+  await page.keyboard.press("Home");
+  for (const pair of await pixels()) for (const pixel of pair) assert.ok(pixel[2] > 200 && pixel[0] < 100);
+  await page.keyboard.press("End");
+  for (const pair of await pixels()) for (const pixel of pair) assert.ok(pixel[0] > 200 && pixel[2] < 100);
+  await page.evaluate(() => window.webmapCanvas.renderer.setSwipe(0.5));
+  const centers = await page.evaluate(() => window.webmapCanvas.renderer.panes.map(pane => [...pane.center]));
+  const bounds = await page.locator('[data-pane="ak"]').boundingBox();
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * 0.4, bounds.y + bounds.height / 2);
+  await page.mouse.up();
+  const final = await page.evaluate(() => ({ fraction: window.webmapCanvas.renderer.swipeFraction,
+    centers: window.webmapCanvas.renderer.panes.map(pane => [...pane.center]), contexts: window.getWebGLContextStats() }));
+  assert.ok(Math.abs(final.fraction - 0.4) < 0.005);
+  assert.deepEqual(final.centers, centers);
+  assert.deepEqual(final.contexts, { live: 1, created: 1 });
+  await page.screenshot({ path: "/tmp/usa-map-swipe.png" });
+  console.log("PASS four-pane swipe pixels, synchronized keyboard/drag, unchanged centers and one context");
 }
 
 if (process.argv[1]?.endsWith("webmap-canvas-browser.mjs")) await run();

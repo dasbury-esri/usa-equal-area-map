@@ -20,6 +20,10 @@ button:focus-visible, .pane:focus-visible, summary:focus-visible { outline: 2px 
 .recenter { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; padding: 5px; font-size: 11px; }
 .scale-bar { position: absolute; left: 8px; bottom: 8px; height: 25px; border-bottom: 2px solid #263c40; text-align: center; background: #ffffffdd; font-size: 11px; white-space: nowrap; }
 [data-pane="ak"] .scale-bar { left: auto; right: 8px; }
+.swipe-divider { position: absolute; top: 44px; bottom: 40px; width: 28px; transform: translateX(-50%); cursor: ew-resize; touch-action: none; display: flex; align-items: center; justify-content: center; }
+.swipe-divider::before { content: ""; position: absolute; left: 13px; top: 0; bottom: 0; width: 2px; background: #263c40; box-shadow: 0 0 0 1px #ffffffcc; }
+.swipe-divider svg { position: relative; background: #fff; border: 1px solid #263c40; border-radius: 3px; }
+.swipe-divider:focus-visible { outline: 2px solid #087a91; outline-offset: -2px; }
 #diagnostics { position: fixed; left: 8px; bottom: 42px; width: min(350px, calc(100% - 16px)); background: #ffffffed; font-size: 12px; max-height: 28%; overflow: auto; border: 1px solid #9cb2b7; padding: 8px; }
 #diagnostics ul { padding-left: 18px; margin: 6px 0; }
 #status { margin: 6px 0; }
