@@ -251,14 +251,14 @@ export async function verifyAreaDetail(page) {
     state.renderer.zoom(pane, factor, rect.x + rect.width / 2, rect.y + rect.height / 2);
     await state.refresh();
   }, factor);
-  await zoom(0.85);
+  await zoom(0.97);
   assert.equal(await page.evaluate(() => window.webmapCanvas.refreshCount), before);
   await zoom(0.5);
   await page.waitForFunction(before => window.webmapCanvas.refreshCount > before && !window.webmapCanvas.refreshing,
     before, { timeout: 180000 });
   const final = await page.evaluate(() => ({ tolerance: window.webmapCanvas.coverage.generalization,
     layers: window.webmapCanvas.renderer.layers.length, contexts: window.getWebGLContextStats() }));
-  assert.ok(final.tolerance < initial.tolerance / 2);
+  assert.ok(final.tolerance <= initial.tolerance / 2);
   assert.equal(final.layers, initial.layers);
   assert.deepEqual(final.contexts, { live: 1, created: 1 });
   console.log("PASS zoom threshold and area detail", { initial, final });

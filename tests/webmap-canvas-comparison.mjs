@@ -35,11 +35,20 @@ async function instrument(page) {
   let requests = new Map();
   await cdp.send("Network.enable");
   await cdp.send("Network.setCacheDisabled", { cacheDisabled: false });
-  cdp.on("Network.requestWillBeSent", event => requests.set(event.requestId, { url: event.request.url, bytes: 0, cache: false }));
+  cdp.on("Network.requestWillBeSent", event => {
+    const parameters = new URLSearchParams(event.request.postData ?? new URL(event.request.url).search);
+    requests.set(event.requestId, { url: event.request.url, method: event.request.method, urlLength: event.request.url.length,
+      kind: parameters.get("returnCountOnly") === "true" ? "count" : parameters.has("quantizationParameters") ? "geometry" : "other",
+      started: event.timestamp, bytes: 0, cache: false });
+  });
   cdp.on("Network.requestServedFromCache", event => { const request = requests.get(event.requestId); if (request) request.cache = true; });
   cdp.on("Network.responseReceived", event => { const request = requests.get(event.requestId); if (request) Object.assign(request,
-    { status: event.response.status, cache: request.cache || event.response.fromDiskCache || event.response.fromServiceWorker || false }); });
-  cdp.on("Network.loadingFinished", event => { const request = requests.get(event.requestId); if (request) request.bytes = event.encodedDataLength; });
+    { status: event.response.status, cache: request.cache || event.response.fromDiskCache || event.response.fromServiceWorker || false,
+      headers: Object.fromEntries(Object.entries(event.response.headers).filter(([name]) =>
+        /^(age|cache-control|etag|last-modified|date|expires|server-timing|via|x-cache.*|x-esri-.*cache.*)$/i.test(name))),
+      ttfbMs: event.response.timing ? event.response.timing.receiveHeadersEnd - event.response.timing.sendEnd : null }); });
+  cdp.on("Network.loadingFinished", event => { const request = requests.get(event.requestId); if (request) Object.assign(request,
+    { bytes: event.encodedDataLength, durationMs: (event.timestamp - request.started) * 1000 }); });
   cdp.on("Network.loadingFailed", event => { const request = requests.get(event.requestId); if (request) request.failure = event.errorText; });
   cdp.on("Fetch.requestPaused", async event => {
     try {
@@ -59,7 +68,8 @@ async function instrument(page) {
   return { cdp, reset: () => { requests = new Map(); }, snapshot: () => {
     const http = [...requests.values()].filter(request => /^https?:/.test(request.url));
     return { requests: http.length, bytes: http.reduce((sum, request) => sum + request.bytes, 0), cacheHits: http.filter(request => request.cache).length,
-      failures: http.filter(request => request.failure || request.status >= 400), geometryRequests: http.filter(request => /\/query\?/.test(request.url)).length };
+      failures: http.filter(request => request.failure || request.status >= 400), geometryRequests: http.filter(request => /\/query(?:\?|$)/.test(request.url)).length,
+      queries: http.filter(request => /\/query(?:\?|$)/.test(request.url)) };
   } };
 }
 
@@ -183,6 +193,12 @@ try {
       if (kind === "prototype") {
         assert.deepEqual(load.renderer.gpuCalls, { getBufferSubData: 0, copyBufferSubData: 0 });
         assert.equal(load.renderer.gpuGeometryBytes, load.renderer.uploadBytes);
+        const queries = load.network.queries.filter(query => query.kind === "geometry");
+        assert.ok(queries.length >= selectedIds.length);
+        assert.ok(queries.every(query => query.method === "GET"), JSON.stringify(queries));
+        const previous = results.loads.find(load => load.kind === kind);
+        if (previous) assert.deepEqual(queries.map(query => query.url).sort(),
+          previous.network.queries.filter(query => query.kind === "geometry").map(query => query.url).sort());
       }
       if (!setupOnly && !native) {
         load.pan = await panIntervals(page, kind);

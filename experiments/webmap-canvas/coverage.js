@@ -1,9 +1,12 @@
 export const metersPerPixel = scale => scale * 0.0254 / 96;
-export const generalizationForScale = scale => metersPerPixel(scale) * 0.5 / 111320;
+export const generalizationForScale = scale => {
+  const level = Math.floor(2 * Math.log2(scale / 1000000) + 1e-12);
+  return metersPerPixel(1000000) * 0.5 / 111320 * 2 ** (level / 2);
+};
 const wrap = longitude => ((longitude + 180) % 360 + 360) % 360 - 180;
 
 export function needsRefresh(loaded, footprint, scale) {
-  if (scale < loaded.scale / Math.SQRT2) return true;
+  if (generalizationForScale(scale) < (loaded.generalization ?? generalizationForScale(loaded.scale))) return true;
   return footprint.rings.some(ring => !loaded.geometry.rings.some(outer =>
     ring[0][0] >= outer[0][0] && ring[0][1] >= outer[0][1]
     && ring[2][0] <= outer[2][0] && ring[2][1] <= outer[2][1]));
@@ -37,8 +40,11 @@ export function queryFootprint(panes, scale, margin = 0.25) {
       south = Math.min(south, point[1]); north = Math.max(north, point[1]);
     }
     if (invalid || !Number.isFinite(west)) boxes.push([-180, -90, 180, 90]);
-    else boxes.push(...splitBounds(west - 2, Math.max(-90, south - 2), east + 2, Math.min(90, north + 2)));
+    else boxes.push(...splitBounds(Math.floor((west - 2) / 5) * 5, Math.max(-90, Math.floor((south - 2) / 5) * 5),
+      Math.ceil((east + 2) / 5) * 5, Math.min(90, Math.ceil((north + 2) / 5) * 5)));
   }
+  const compare = (first, second) => first[0] - second[0] || first[1] - second[1] || first[2] - second[2] || first[3] - second[3];
+  boxes.sort(compare);
   for (let first = 0; first < boxes.length; first++) {
     for (let second = first + 1; second < boxes.length; second++) {
       const left = boxes[first], right = boxes[second];
@@ -49,6 +55,6 @@ export function queryFootprint(panes, scale, margin = 0.25) {
       break;
     }
   }
-  return { type: "polygon", spatialReference: { wkid: 4326 }, rings: boxes.map(([west, south, east, north]) =>
+  return { type: "polygon", spatialReference: { wkid: 4326 }, rings: boxes.sort(compare).map(([west, south, east, north]) =>
     [[west, south], [west, north], [east, north], [east, south], [west, south]]) };
 }

@@ -127,15 +127,38 @@ test("groups preserve visibility opacity and scale restrictions", () => {
 test("scale detail refines only beyond threshold or outside cached area", async () => {
   const geometry = { rings: [[[-120, 20], [-120, 60], [-60, 60], [-60, 20], [-120, 20]]] };
   const loaded = { geometry, scale: 24000000 };
-  assert.equal(needsRefresh(loaded, geometry, 20000000), false);
+  assert.equal(needsRefresh(loaded, geometry, 23000000), false);
+  assert.equal(needsRefresh(loaded, geometry, 20000000), true);
   assert.equal(needsRefresh(loaded, geometry, 16000000), true);
   assert.equal(needsRefresh(loaded, { rings: [[[-121, 20], [-121, 60], [-60, 60], [-60, 20], [-121, 20]]] }, 24000000), true);
   const generalization = generalizationForScale(24000000);
-  assert.ok(Math.abs(generalization * 111320 - 3175) < 1e-9);
+  assert.equal(generalization, generalizationForScale(1000000) * 2 ** 4.5);
+  assert.ok(generalization * 111320 <= 3175);
   assert.equal(generalizationForScale(12000000), generalization / 2);
   const layer = fakeLayer();
   await createDownloader({ generalization })(layer, []);
   assert.equal(layer.calls[0].quantizationParameters.tolerance, generalization);
+});
+
+test("query grids are canonical across view jitter and pane order", () => {
+  const pane = longitude => ({ center: [0, 0], element: { getBoundingClientRect: () => ({ width: 100, height: 100 }) },
+    parameters: { converter: { inverse: ([horizontal, vertical]) => [longitude + horizontal / 100000, 40 + vertical / 100000] } } });
+  const first = pane(-100), second = pane(-50);
+  const footprint = queryFootprint([first, second], 1000000);
+  assert.deepEqual(footprint, queryFootprint([second, first], 1000000));
+  first.center = [10, -10];
+  assert.deepEqual(footprint, queryFootprint([first, second], 1000000));
+  for (const ring of footprint.rings) for (const coordinate of ring.flat()) assert.equal(Math.abs(coordinate % 5), 0);
+  for (let level = 0; level <= 12; level++) {
+    const scale = 1000000 * 2 ** (level / 2);
+    const tolerance = generalizationForScale(scale);
+    assert.equal(tolerance, generalizationForScale(scale * 1.001));
+    assert.equal(tolerance, generalizationForScale(scale * (Math.SQRT2 - 0.001)));
+    assert.ok(generalizationForScale(scale / 1.001) < tolerance);
+  }
+  const dateline = queryFootprint([pane(179)], 1000000);
+  assert.equal(dateline.rings.length, 2);
+  assert.ok(dateline.rings.flat(2).every(Number.isFinite));
 });
 
 test("view quantization bounds cover the footprint and pages decode before use", async () => {
