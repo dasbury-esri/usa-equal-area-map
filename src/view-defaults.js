@@ -1,3 +1,5 @@
+import { projections } from "./projections.js";
+
 export default {
   zoomAnchorScale: 1000000,
   main: {
@@ -6,7 +8,7 @@ export default {
       x: -1525519.1093440866,
       y: -520663.8250466283,
       spatialReference: {
-        wkt: 'PROJCS["Lambert Azimuthal Equal Area_North America_alt",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-99.0],PARAMETER["Latitude_Of_Origin",40.0],UNIT["Meter",1.0]]',
+        wkt: projections.lambert.conus.wkt,
       },
     },
     scale: 24000000,

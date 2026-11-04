@@ -11,6 +11,7 @@ import * as projectOperator from "@arcgis/core/geometry/operators/projectOperato
 //import * as Projection from "@arcgis/core/geometry/projection.js";
 import SpatialReference from "@arcgis/core/geometry/SpatialReference.js";
 import "@arcgis/map-components/components/arcgis-scale-bar";
+import { projections } from "./projections.js";
 //import Compass from "@arcgis/core/widgets/Compass.js";
 import Graphic from "@arcgis/core/Graphic.js";
 import * as reactiveUtils from "@arcgis/core/core/reactiveUtils.js";
@@ -287,49 +288,49 @@ const App =  () => {
     {
     // Lambert Equal Area Projection for continental US
     var conusSR = new SpatialReference(
-      viewDefaults.main.drawerOpenCenter.spatialReference);
+      { wkt: projections.lambert.conus.wkt });
     // Lambert Equal Area projection for Alaska map
     var akSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_Alaska",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-148.0],PARAMETER["Latitude_Of_Origin",64.0],UNIT["Meter",1.0]]');
+        { wkt: projections.lambert.ak.wkt });
     // Lambert Equal Area projection for Hawaii map
     var hiSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_Hawaii",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-156.0],PARAMETER["Latitude_Of_Origin",20.0],UNIT["Meter",1.0]]');
+        { wkt: projections.lambert.hi.wkt });
     // Lambert Equal Area Projection for Puerto Rico/US Virgin Islands map
     var prSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_PR_VI",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-65.5],PARAMETER["Latitude_Of_Origin",18.0],UNIT["Meter",1.0]]');
+        { wkt: projections.lambert.pr.wkt });
     // Lambert Equal Area Projection for Guam/Northern Marianas map
     var guSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_GU_MP",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",145.0],PARAMETER["Latitude_Of_Origin",16.0],UNIT["Meter",1.0]]');
+        { wkt: projections.lambert.gu.wkt });
     // Lambert Equal Area Projection for American Samoa map
     var asSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_AS",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-170.0],PARAMETER["Latitude_Of_Origin",-14.0],UNIT["Meter",1.0]]');
+        { wkt: projections.lambert.as.wkt });
     // Lambert Equal Area Projection for Overview map
     var overviewSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_US_global_extent",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-140.0],PARAMETER["Latitude_Of_Origin",17.25],UNIT["Meter",1.0]]');
+        { wkt: projections.lambert.overview.wkt });
     }
 
     {
     // Albers Equal Area Projection for continental US
     var conusAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_US",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-96.0],PARAMETER["Standard_Parallel_1",29.5],PARAMETER["Standard_Parallel_2",45.5],PARAMETER["Latitude_Of_Origin",23.0],UNIT["Meter",1.0]]');
+      { wkt: projections.albers.conus.wkt });
     // Albers Equal Area Projection for Alaska map
     var akAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_AK",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-154.0],PARAMETER["Standard_Parallel_1",55.0],PARAMETER["Standard_Parallel_2",65.0],PARAMETER["Latitude_Of_Origin",50.0],UNIT["Meter",1.0]]');
+      { wkt: projections.albers.ak.wkt });
     // Albers Equal Area Projection for Hawaii map
     var hiAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_HI",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-157.0],PARAMETER["Standard_Parallel_1",8.0],PARAMETER["Standard_Parallel_2",18.0],PARAMETER["Latitude_Of_Origin",13.0],UNIT["Meter",1.0]]');
+      { wkt: projections.albers.hi.wkt });
     // Albers Equal Area Projection for Puerto Rico map
     var prAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_PR",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-66.5],PARAMETER["Standard_Parallel_1",18.0],PARAMETER["Standard_Parallel_2",20.0],PARAMETER["Latitude_Of_Origin",17.0],UNIT["Meter",1.0]]');
+      { wkt: projections.albers.pr.wkt });
     // Albers Equal Area Projection for Guam/Northern Marianas map
     var guAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_Guam",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",145.0],PARAMETER["Standard_Parallel_1",13.0],PARAMETER["Standard_Parallel_2",15.0],PARAMETER["Latitude_Of_Origin",12.0],UNIT["Meter",1.0]]');
+      { wkt: projections.albers.gu.wkt });
     // Albers Equal Area Projection for American Samoa map
     var asAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_AS",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-170.0],PARAMETER["Standard_Parallel_1",-14.0],PARAMETER["Standard_Parallel_2",-10.0],PARAMETER["Latitude_Of_Origin",-13.0],UNIT["Meter",1.0]]');
+      { wkt: projections.albers.as.wkt });
     // Albers Equal Area Projection for Overview map
     var overviewAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_Overview",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-140.0],PARAMETER["Standard_Parallel_1",29.5],PARAMETER["Standard_Parallel_2",45.5],PARAMETER["Latitude_Of_Origin",23.0],UNIT["Meter",1.0]]');
+      { wkt: projections.albers.overview.wkt });
     }
 
     var defaultLayer = new FeatureLayer({

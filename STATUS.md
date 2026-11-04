@@ -27,6 +27,10 @@ now clip the Albers panhandle by about 94px at 1920x1080 and 139px at 2560x1600;
 Attu fits. This regression is documented, not retuned. See
 [session 0014](session-logs/2026-11-04-0014-session-log.md).
 Use headless checks during development to avoid disturbing the owner's desktop.
+Step 1 centralizes all 14 projection definitions in `src/projections.js`;
+numeric comparison against Step 0 and focused lint/syntax checks pass. See
+[ADR-0002](docs/adr/ADR-0002-single-canvas-webmap-prototype.md) for the provisional
+architecture and accumulating verification record.
 
 ## Local Development
 
