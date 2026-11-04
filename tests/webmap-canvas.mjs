@@ -9,6 +9,84 @@ import { createDownloader, flattenLayers, loadFeatures, quantizationParameters, 
 import { compileRenderer } from "../experiments/webmap-canvas/renderers.js";
 import { continuousPath, densifyPath, polygonParts, prepareGeometry, triangulate, visibleRanges } from "../experiments/webmap-canvas/geometry.js";
 import { generalizationForScale, needsRefresh, queryFootprint, splitBounds } from "../experiments/webmap-canvas/coverage.js";
+import { createTileLoader, decodeTile, sourceProjection, tileCoordinate } from "../experiments/webmap-canvas/tiles.js";
+import { PbfWriter } from "pbf";
+
+test("MVT buffers clip without artificial coastline edges, preserve holes and own edges once", () => {
+  const writer = new PbfWriter();
+  const fixtures = [
+    { type: 3, paths: [[[-10, -10], [110, -10], [110, 110], [-10, 110]], [[30, 30], [30, 70], [70, 70], [70, 30]]] },
+    { type: 2, paths: [[[0, 0], [0, 100]]] },
+    { type: 2, paths: [[[100, 0], [100, 100]]] },
+    { type: 1, paths: [[[0, 50]]] },
+    { type: 1, paths: [[[100, 50]]] },
+  ];
+  writer.writeMessage(3, (_value, layer) => {
+    layer.writeVarintField(15, 2); layer.writeStringField(1, "coast"); layer.writeVarintField(5, 100);
+    for (const fixture of fixtures) layer.writeMessage(2, (value, feature) => {
+      feature.writeVarintField(3, value.type);
+      const commands = [], previous = [0, 0];
+      for (const path of value.paths) {
+        for (let index = 0; index < path.length; index++) {
+          if (index === 0) commands.push(9);
+          else if (index === 1) commands.push(((path.length - 1) << 3) | 2);
+          for (let axis = 0; axis < 2; axis++) {
+            const delta = path[index][axis] - previous[axis];
+            commands.push(delta < 0 ? -delta * 2 - 1 : delta * 2);
+            previous[axis] = path[index][axis];
+          }
+        }
+        if (value.type === 3) commands.push(15);
+      }
+      feature.writePackedVarint(4, commands);
+    }, fixture);
+  }, null);
+  const metadata = { tileInfo: { spatialReference: { wkt: "+proj=longlat +datum=WGS84 +no_defs" },
+    cols: 100, rows: 100, origin: { x: 0, y: 1 } } };
+  const features = decodeTile(writer.finish(), metadata, { resolution: 0.01 }, 0, 0);
+  assert.deepEqual(features.map(feature => feature.geometry.type), ["polygon", "polyline", "multipoint"]);
+  assert.equal(features[0].geometry.rings.length, 2);
+  assert.equal(features[0].boundaryPaths.length, 4);
+  assert.ok(features[0].boundaryPaths.flat().every(point => point.every(value => value > 0 && value < 1)));
+  const area = features[0].geometry.rings.reduce((total, ring) => total + ring.slice(1).reduce((sum, point, index) =>
+    sum + ring[index][0] * point[1] - point[0] * ring[index][1], 0) / 2, 0);
+  assert.ok(Math.abs(Math.abs(area) - 0.84) < 1e-12);
+  assert.deepEqual(features[1].geometry.paths, [[[0, 1], [0, 0]]]);
+  assert.deepEqual(features[2].geometry.points, [[0, 0.5]]);
+});
+
+test("tile source CRS and tile grid are independent of the pane projection", () => {
+  const metadata = { tileInfo: { spatialReference: { wkid: 5070 }, cols: 512, rows: 512, origin: { x: -16900977.339992262, y: 21063951.17933842 } } };
+  const converter = sourceProjection(metadata), anchor = converter.forward([-66.1, 18.45]);
+  assert.ok(Math.abs(anchor[0] - 3224258.167837162) < 0.001);
+  const lod = { resolution: 257.8884481810343 };
+  assert.deepEqual(tileCoordinate(metadata.tileInfo, lod, 2, 3, 4096, [4096, 0]), tileCoordinate(metadata.tileInfo, lod, 3, 3, 4096, [0, 0]));
+  assert.deepEqual(tileCoordinate(metadata.tileInfo, lod, 2, 3, 4096, [0, 4096]), tileCoordinate(metadata.tileInfo, lod, 2, 4, 4096, [0, 0]));
+  assert.deepEqual(parseOptions("?panes=gu&scale=500000&tiles=https://example.com/VectorTileServer").panes, ["gu"]);
+  assert.throws(() => parseOptions("?tiles=http://example.com/VectorTileServer"));
+});
+
+test("tile coverage advances only after acceptance and wrong source CRS is refused", async context => {
+  const metadata = { tileInfo: { format: "pbf", spatialReference: { wkid: 5070 }, cols: 512, rows: 512,
+    origin: { x: -10000, y: 10000 }, lods: [{ level: 0, scale: 1000000, resolution: 20 }, { level: 1, scale: 500000, resolution: 10 }] },
+    fullExtent: { xmin: -10000, ymin: -10000, xmax: 10000, ymax: 10000 } };
+  let requests = 0;
+  context.mock.method(globalThis, "fetch", async url => {
+    requests++;
+    return String(url).endsWith("?f=json") ? { ok: true, json: async () => metadata } : { status: 204 };
+  });
+  const loader = createTileLoader(["https://example.com/VectorTileServer"], () => {});
+  await assert.rejects(loader([{ id: "ak" }], 1000000), /requires.*3338/);
+  const panes = [{ id: "conus", center: [0, 0], parameters: { converter: sourceProjection(metadata) },
+    element: { getBoundingClientRect: () => ({ width: 100, height: 100 }) } }];
+  const datasets = await loader(panes, 1000000), requested = requests;
+  assert.equal(loader.needsRefresh(panes, 1000000), true);
+  loader.accept(datasets);
+  assert.equal(loader.needsRefresh(panes, 1000000), false);
+  assert.equal(loader.needsRefresh(panes, 500000), true);
+  await loader(panes, 1000000);
+  assert.equal(requests, requested);
+});
 
 test("prototype defaults and explicit inputs", () => {
   assert.deepEqual(parseOptions("").panes, ["conus", "ak", "hi", "pr"]);

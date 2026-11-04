@@ -14,7 +14,7 @@
   <main></main>
   <script type="module">
     const params = new URLSearchParams(location.search);
-    if (!params.has("webmap") && !params.has("layers")) params.set("layers", "bbda2d6bc77c495ab382e313f02888f1");
+    if (!params.has("webmap") && !params.has("layers") && !params.has("tiles")) params.set("layers", "bbda2d6bc77c495ab382e313f02888f1");
     for (let index = 0; index < 4; index++) {
       const frame = document.createElement("iframe");
       frame.title = `Equal area map ${index + 1}`;

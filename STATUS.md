@@ -99,6 +99,22 @@ on port 5175. The owner subsequently authorized pushing these four measured
 commits and a `[skip ci]` session closeout to the prototype branch only.
 No merge or deployment is authorized by that closeout.
 
+[Session 0020](session-logs/2026-11-04-0020-session-log.md) adds concurrent
+service-sized pages and shared OR-filter geometry downloads including hidden
+layers. The unmodified owner-map benchmark completes in 5.01s cold / 2.60s warm
+standalone and 6.50s / 5.22s with four embeds, but remains partial rendering:
+multiply, CIM and imagery are unsupported. Fetching previously skipped layers
+increases requests; this is not a demonstrated like-for-like speedup.
+
+A separately committed `tiles=` experiment decodes the supplied CONUS/Alaska
+Albers PBF sources using their NAD83 CRS before the existing pane shader, with
+plain symbols, tile-edge clipping and optional Guam. Eight independent coastline
+comparisons at 1:1000000 and 1:500000 have subpixel medians, but sampled maximum
+offsets exceed one pixel at San Juan, Honolulu and Guam. Anchorage passes both.
+Desktop/mobile rendering, pan/zoom, source routing, 24 contracts and 651 chunk
+budgets pass. Existing line/fidelity gaps remain. These four follow-up commits
+remain local: no new push, merge or deployment is authorized.
+
 ## Local Development
 
 Use one repository-backed dev instance at

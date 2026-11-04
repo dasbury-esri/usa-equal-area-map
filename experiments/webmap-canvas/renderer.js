@@ -6,7 +6,7 @@ import { visibleAtScale } from "./data.js";
 import { prepareGeometry, visibleRanges } from "./geometry.js";
 import { projectionGLSL, projectionParameters, projectChunkBounds, createProgram, setProjection } from "./projection.js";
 
-export const HOME_CENTERS = Object.freeze({ conus: [-97, 38], ak: [-159, 62], hi: [-157, 20.7], pr: [-66.2, 18.2] });
+export const HOME_CENTERS = Object.freeze({ conus: [-97, 38], ak: [-159, 62], hi: [-157, 20.7], pr: [-66.2, 18.2], gu: [144.8, 13.45] });
 const metersPerPixel = scale => scale * 0.0254 / 96;
 
 const vertexSource = `#version 300 es
@@ -190,6 +190,7 @@ export class CanvasRenderer {
         ...this.swipePair.map(dataset => this.layers.find(layer => layer.dataset === dataset))] : this.layers;
       for (const layer of layers) {
         if (!visibleAtScale(layer.dataset, this.scale)) continue;
+        if (layer.dataset.paneId && layer.dataset.paneId !== pane.id) continue;
         const side = this.swipePair?.indexOf(layer.dataset) ?? -1;
         const split = Math.round(rect.width * this.swipeFraction);
         gl.scissor(rect.x + (side === 1 ? split : 0), rect.y,

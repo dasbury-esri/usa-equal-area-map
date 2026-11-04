@@ -1,5 +1,5 @@
-export const PANE_NAMES = Object.freeze({ conus: "Contiguous United States", ak: "Alaska", hi: "Hawaii", pr: "Puerto Rico / USVI" });
-export const MIN_SCALE = 1000000;
+export const PANE_NAMES = Object.freeze({ conus: "Contiguous United States", ak: "Alaska", hi: "Hawaii", pr: "Puerto Rico / USVI", gu: "Guam" });
+export const MIN_SCALE = 500000;
 export const MAX_SCALE = 80000000;
 
 export function resolveSwipe(datasets, selection) {
@@ -20,7 +20,7 @@ export function parseOptions(search) {
   }
   const projection = params.get("projection") ?? "lambert";
   if (!["albers", "lambert"].includes(projection)) throw new Error("Unknown projection.");
-  const panes = params.has("panes") ? params.get("panes").split(",") : Object.keys(PANE_NAMES);
+  const panes = params.has("panes") ? params.get("panes").split(",") : ["conus", "ak", "hi", "pr"];
   if (!panes.length || panes.some(pane => !Object.hasOwn(PANE_NAMES, pane)) || new Set(panes).size !== panes.length) {
     throw new Error("Unknown or duplicate pane.");
   }
@@ -29,6 +29,14 @@ export function parseOptions(search) {
     throw new Error("Swipe requires two distinct layer IDs or indexes.");
   }
   const scale = params.has("scale") ? Number(params.get("scale")) : 24000000;
-  if (!Number.isFinite(scale) || scale < MIN_SCALE || scale > MAX_SCALE) throw new Error("Scale must be between 1000000 and 80000000.");
-  return { webmap, layers, projection, panes, swipe, scale };
+  if (!Number.isFinite(scale) || scale < MIN_SCALE || scale > MAX_SCALE) throw new Error("Scale must be between 500000 and 80000000.");
+  const tiles = params.has("tiles") ? params.get("tiles").split(",").map(value => {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || !/\/VectorTileServer\/?$/.test(url.pathname)) {
+      throw new Error("tiles requires public HTTPS VectorTileServer URLs without credentials or query parameters");
+    }
+    return url.href.replace(/\/$/, "");
+  }) : [];
+  if (tiles.length > 2) throw new Error("tiles accepts CONUS and optional Alaska sources");
+  return { webmap, layers, projection, panes, swipe, scale, tiles };
 }

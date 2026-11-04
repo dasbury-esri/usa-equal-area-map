@@ -44,7 +44,7 @@ try {
     panes.append(pane);
   }
   document.querySelector("#scale").textContent = `1:${Math.round(options.scale).toLocaleString("en-US")}`;
-  if (!options.webmap && !options.layers.length) {
+  if (!options.webmap && !options.layers.length && !options.tiles.length) {
     state.status = "waiting";
     status.textContent = "No public item selected.";
     return;
@@ -54,16 +54,28 @@ try {
   state.timings = { sourcesMs: performance.now() - sourceStarted };
   document.querySelector("#map-title").textContent = state.sources.title;
   state.renderer = new CanvasRenderer(document.querySelector("#map-canvas"), options, report);
+  const tileLoader = options.tiles.length ? (await import("./tiles.js")).createTileLoader(options.tiles, report) : null;
+  const loadDatasets = async (coverage, refreshFeatures = true) => {
+    const [features, tiles] = await Promise.all([
+      refreshFeatures ? loadFeatures(state.sources.layers, report, publicItem, coverage)
+        : Promise.resolve(state.datasets.filter(dataset => !dataset.tileEvidence)),
+      tileLoader ? tileLoader(state.renderer.panes, state.renderer.scale) : Promise.resolve([]),
+    ]);
+    return [...tiles, ...features];
+  };
   const requestOptions = () => ({ scale: state.renderer.scale,
     geometry: queryFootprint(state.renderer.panes, state.renderer.scale),
     generalization: generalizationForScale(state.renderer.scale) });
   state.coverage = requestOptions();
   const downloadStarted = performance.now();
-  state.datasets = await loadFeatures(state.sources.layers, report, publicItem,
-    state.coverage);
+  state.datasets = await loadDatasets(state.coverage);
   state.timings.downloadMs = performance.now() - downloadStarted;
   status.textContent = "Preparing geometry";
-  await state.renderer.load(state.datasets);
+  const loaded = await state.renderer.load(state.datasets);
+  if (tileLoader) {
+    if (!loaded) throw new Error("Vector tile geometry could not be uploaded");
+    tileLoader.accept(state.datasets);
+  }
   Object.assign(state.timings, state.renderer.loadTimings);
   state.status = "ready";
   state.firstRenderMs = performance.now();
@@ -73,21 +85,23 @@ try {
   let timer;
   state.refreshCount = 0;
   const refresh = async () => {
-    if (state.refreshing || !needsRefresh(state.coverage,
-      queryFootprint(state.renderer.panes, state.renderer.scale, 0), state.renderer.scale)) return;
+    const refreshFeatures = needsRefresh(state.coverage,
+      queryFootprint(state.renderer.panes, state.renderer.scale, 0), state.renderer.scale);
+    if (state.refreshing || (!refreshFeatures && !tileLoader?.needsRefresh(state.renderer.panes, state.renderer.scale))) return;
     const current = version;
     const coverage = requestOptions();
     state.refreshing = true;
     status.textContent = "Loading area detail";
     try {
-      const datasets = await loadFeatures(state.sources.layers, report, publicItem, coverage);
+      const datasets = await loadDatasets(coverage, refreshFeatures);
       const expected = state.datasets.map(dataset => dataset.id);
       if (datasets.length !== expected.length || datasets.some(dataset => !expected.includes(dataset.id))) {
         throw new Error("Incomplete area refresh; previous geometry retained");
       }
       if (current === version && await state.renderer.load(datasets, { isCurrent: () => current === version })) {
         state.datasets = datasets;
-        state.coverage = coverage;
+        tileLoader?.accept(datasets);
+        if (refreshFeatures) state.coverage = coverage;
         state.refreshCount++;
       }
     } catch (error) {

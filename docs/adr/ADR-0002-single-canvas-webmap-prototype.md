@@ -4,6 +4,31 @@
 - Recorded: 2026-11-04 09:29:49+00:00[UTC]
 - Scope: Unpublished `prototype/webmap-canvas`; no main merge or publication
 
+## Owner Map and Tile Follow-Up
+
+Recorded 2026-11-04 22:56:06+00:00[UTC].
+[Session 0020](../../session-logs/2026-11-04-0020-session-log.md) records four
+separately measured local commits: service-sized concurrent pages, shared
+OR-filter geometry with per-layer ID membership including hidden layers,
+unmodified owner-map single/four benchmarks, and projected vector tiles.
+Owner-map completion is 5.01s/2.60s standalone and 6.50s/5.22s with four embeds
+(cold/warm). Unsupported multiply/CIM/imagery means partial rendering only.
+
+The opt-in `tiles=` experiment selects EPSG:5070 for CONUS/HI/PR/GU and
+EPSG:3338 for AK by advertised source CRS. MVT tile coordinates are converted
+using the source grid and inverse-projected with proj4 before existing pane
+shader rendering. Plain symbols only; no style assets or labels. Tile-space
+clipping preserves holes, suppresses artificial polygon outlines and assigns
+line/point edges once. Accepted tile coverage follows transactional uploads.
+
+Eight independent feature-service coastline comparisons have subpixel median
+geometric screen offsets. The sampled maximum stays below one pixel only at
+Anchorage, at both requested scales; San Juan, Honolulu and Guam fail that
+strict check. Do not infer four-location projection/fidelity acceptance. Native
+desktop/mobile pixels and pan/zoom pass; inherited subpixel line artifacts
+remain. The historical restrictions below are superseded only for this opt-in
+experiment. No current follow-up push, main merge or deployment is authorized.
+
 ## Current Startup Follow-Up
 
 Recorded 2026-11-04 21:15:07+00:00[UTC]. The owner authorized five measured
