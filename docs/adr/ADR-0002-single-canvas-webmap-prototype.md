@@ -82,7 +82,8 @@ services provide no vertex count. See the public
 
 ### Remaining Steps
 
-Tile discovery results are pending. Native comparison found acceptance gaps.
+All numbered investigation steps are recorded. Native comparison found
+acceptance gaps; the heavy iframe harness and real owner WebMap remain open.
 No final prototype acceptance or performance improvement is claimed.
 
 ## Step 3: Data Contract and Results
@@ -288,3 +289,21 @@ Artifacts: main headless `usa-map-comparison-3Yojhm`, prototype headless
 `usa-map-comparison-L26bDQ` under the same temporary parent as native captures;
 `/tmp/usa-map-comparison.log`, `/tmp/usa-map-comparison-prototype-final.log`,
 `/tmp/usa-map-four-fixed.log`, `/tmp/usa-map-prototype-build.log`.
+
+## Step 7: Public Vector Tile Research
+
+[Source inventory](../vector-tile-sources.md) records public item IDs, owners,
+service SR/WKT, origins, LODs and exact-match decisions. Skinner's Alaska/CONUS
+services and the Hawaii candidate match pane Albers parameters but use NAD83,
+not WGS84. Public LAEA sources have different centers. No inspected source is
+an exact complete-CRS pane match, and no dedicated PR/USVI match was established.
+Text search and advertised global bounds do not prove island-level coverage.
+All access was anonymous/public; missing item style resources were documented
+and service-root styles checked, without accessing internal systems.
+
+An exact match could decode tiles into source projected coordinates and draw
+directly in the pane. Otherwise inverse source projection, explicit datum
+conversion to WGS84 and pane reprojection are needed, with domain clipping and
+densification. Neither approach implements vector-tile styling: expressions,
+zoom-dependent rules, glyphs, sprites, labels and collision handling remain
+substantial work. This is research only; no tile-rendering feature was added.

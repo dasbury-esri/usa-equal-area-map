@@ -55,6 +55,10 @@ artifact remain. Pan cadence is about 117ms versus 16.7ms for MapViews. The
 four-iframe comparison harness is unresolved; the owner approved recording that
 limitation and continuing. All 649 build budgets and built-entry smoke checks
 pass. This is an unpublished investigation, not an accepted replacement.
+Step 7 records [public vector-tile sources](docs/vector-tile-sources.md).
+Inspected Albers candidates differ by datum; LAEA candidates differ by center.
+No exact complete-CRS match is established. All numbered work is recorded, with
+the documented rendering/performance/iframe acceptance gaps still open.
 
 ## Local Development
 
