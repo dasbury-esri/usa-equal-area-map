@@ -9,7 +9,29 @@ export const TILE_CRS = Object.freeze({
   3338: "+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs",
 });
 
+const mercatorRadius = 6378137;
+const mercatorLimit = Math.atan(Math.sinh(Math.PI)) * 180 / Math.PI;
+const isMercator = (metadata) => {
+  const reference = metadata.tileInfo.spatialReference;
+  return [3857, 102100, 102113, 900913].includes(
+    reference.latestWkid ?? reference.wkid,
+  );
+};
+
 export function sourceProjection(metadata) {
+  if (isMercator(metadata))
+    return {
+      forward: ([longitude, latitude]) => [
+        mercatorRadius * longitude * Math.PI / 180,
+        mercatorRadius * Math.asinh(Math.tan(
+          Math.max(-mercatorLimit, Math.min(mercatorLimit, latitude)) * Math.PI / 180,
+        )),
+      ],
+      inverse: ([horizontal, vertical]) => [
+        horizontal / mercatorRadius * 180 / Math.PI,
+        Math.atan(Math.sinh(vertical / mercatorRadius)) * 180 / Math.PI,
+      ],
+    };
   const reference = metadata.tileInfo.spatialReference;
   const definition =
     reference.wkt || TILE_CRS[reference.latestWkid ?? reference.wkid];
@@ -126,9 +148,14 @@ export function decodeTile(bytes, metadata, lod, column, row) {
 
 export function paneTiles(pane, scale, metadata) {
   const converter = sourceProjection(metadata),
-    info = metadata.tileInfo;
+    info = metadata.tileInfo,
+    mercator = isMercator(metadata),
+    center = pane.parameters.converter.inverse(pane.center),
+    latitudeFactor = Math.cos(Math.max(-mercatorLimit, Math.min(mercatorLimit, center[1])) * Math.PI / 180);
   const lod =
-    info.lods.find((level) => level.scale <= scale) ?? info.lods.at(-1);
+    info.lods.find((level) => mercator
+      ? level.resolution * latitudeFactor <= scale * 0.0254 / 96
+      : level.scale <= scale) ?? info.lods.at(-1);
   const bounds = pane.element.getBoundingClientRect(),
     resolution = (scale * 0.0254) / 96;
   const extent = [Infinity, Infinity, -Infinity, -Infinity];
@@ -138,6 +165,8 @@ export function paneTiles(pane, scale, metadata) {
         pane.center[0] + (horizontal / 16 - 0.5) * bounds.width * resolution,
         pane.center[1] + (vertical / 16 - 0.5) * bounds.height * resolution,
       ]);
+      if (mercator)
+        geographic[0] = center[0] + ((geographic[0] - center[0] + 180) % 360 + 360) % 360 - 180;
       const point = converter.forward(geographic);
       if (!point.every(Number.isFinite))
         throw new Error(
@@ -152,23 +181,32 @@ export function paneTiles(pane, scale, metadata) {
     height = info.rows * lod.resolution,
     full = metadata.fullExtent;
   const firstColumn = Math.floor(
-    (Math.max(full.xmin, extent[0] - width) - info.origin.x) / width,
+    ((mercator ? extent[0] - width : Math.max(full.xmin, extent[0] - width)) - info.origin.x) / width,
   );
   const lastColumn = Math.floor(
-    (Math.min(full.xmax, extent[2] + width) - info.origin.x) / width,
+    ((mercator ? extent[2] + width : Math.min(full.xmax, extent[2] + width)) - info.origin.x) / width,
   );
-  const firstRow = Math.floor(
+  let firstRow = Math.floor(
     (info.origin.y - Math.min(full.ymax, extent[3] + height)) / height,
   );
-  const lastRow = Math.floor(
+  let lastRow = Math.floor(
     (info.origin.y - Math.max(full.ymin, extent[1] - height)) / height,
   );
+  const columns = Math.round(2 * Math.PI * mercatorRadius / width);
+  if (mercator) {
+    firstRow = Math.max(0, firstRow);
+    lastRow = Math.min(lastRow, Math.round(2 * Math.PI * mercatorRadius / height) - 1);
+  }
   if ((lastColumn - firstColumn + 1) * (lastRow - firstRow + 1) > 256)
     throw new Error("Tile footprint exceeds 256-tile pane budget");
-  const tiles = [];
+  const tiles = [], seen = new Set();
   for (let row = firstRow; row <= lastRow; row++)
-    for (let column = firstColumn; column <= lastColumn; column++)
-      tiles.push({ lod, row, column });
+    for (let column = firstColumn; column <= lastColumn; column++) {
+      const wrapped = mercator ? ((column % columns) + columns) % columns : column;
+      const key = `${row}/${wrapped}`;
+      if (!seen.has(key)) tiles.push({ lod, row, column: wrapped });
+      seen.add(key);
+    }
   return tiles;
 }
 
@@ -184,10 +222,10 @@ export function createTileLoader(urls, report) {
         (reference?.latestWkid ?? reference?.wkid) === expected ||
         (expected === 3338 && reference?.wkid === 102006)
       );
-    });
+    }) ?? urls.find((candidate) => resolved.has(candidate) && isMercator(resolved.get(candidate)));
     if (!url)
       throw new Error(
-        `Pane ${pane.id} requires a tile source advertising EPSG:${expected}`,
+        `Pane ${pane.id} requires EPSG:${expected} or Web Mercator tiles`,
       );
     return url;
   };
@@ -274,11 +312,12 @@ export function createTileLoader(urls, report) {
           .flat()
           .filter(
             (feature) =>
-              !/\/(label|abbr)(?:\/|$)/i.test(feature.attributes.tileLayer),
+              !/\/(label|abbr)(?:\/|$)/i.test(feature.attributes.tileLayer) &&
+              (!isMercator(source) || feature.geometry.type !== "multipoint"),
           );
         const rank = (feature) =>
           feature.geometry.type === "polygon"
-            ? /water|ocean|lake|inlandseas/i.test(feature.attributes.tileLayer)
+            ? /water|ocean|marine|lake|inlandseas/i.test(feature.attributes.tileLayer)
               ? 1
               : 0
             : feature.geometry.type === "polyline"

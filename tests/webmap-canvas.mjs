@@ -9,7 +9,7 @@ import { createDownloader, flattenLayers, loadFeatures, quantizationParameters, 
 import { compileRenderer } from "../experiments/webmap-canvas/renderers.js";
 import { continuousPath, densifyPath, polygonParts, prepareGeometry, triangulate, visibleRanges } from "../experiments/webmap-canvas/geometry.js";
 import { generalizationForScale, needsRefresh, queryFootprint, splitBounds } from "../experiments/webmap-canvas/coverage.js";
-import { createTileLoader, decodeTile, sourceProjection, tileCoordinate } from "../experiments/webmap-canvas/tiles.js";
+import { createTileLoader, decodeTile, paneTiles, sourceProjection, tileCoordinate } from "../experiments/webmap-canvas/tiles.js";
 import { PbfWriter } from "pbf";
 import { Worker as NodeWorker } from "node:worker_threads";
 import { preparationSnapshot } from "../experiments/webmap-canvas/preparation.js";
@@ -41,6 +41,64 @@ import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmes
     }
   } finally { await worker.terminate(); }
 });
+import proj4 from "proj4";
+
+const mercatorMetadata = () => {
+  const edge = 20037508.342789244;
+  return { tileInfo: { format: "pbf", spatialReference: { wkid: 102100, latestWkid: 3857 },
+    origin: { x: -edge, y: edge }, cols: 512, rows: 512,
+    lods: Array.from({ length: 20 }, (_, level) => ({ level, resolution: 2 * edge / 512 / 2 ** level })) },
+    fullExtent: { xmin: -edge, ymin: -edge, xmax: edge, ymax: edge } };
+};
+
+test("analytic Mercator tile coordinates match independent proj4 at coastal anchors and CRS aliases", () => {
+  for (const wkid of [3857, 102100, 102113, 900913]) {
+    const metadata = mercatorMetadata();
+    metadata.tileInfo.spatialReference = { wkid };
+    const converter = sourceProjection(metadata);
+    for (const point of [[-66.1, 18.45], [-157.86, 21.3], [144.75, 13.45], [-149.9, 61.2], [-170.7, -14.28], [-176.65, 51.88], [179.9, 52]]) {
+      const projected = proj4("EPSG:4326", "EPSG:3857", point);
+      converter.inverse(projected).forEach((value, axis) => assert.ok(Math.abs(value - point[axis]) < 1e-10));
+      converter.forward(point).forEach((value, axis) => assert.ok(Math.abs(value - projected[axis]) < 1e-7));
+    }
+    const lod = metadata.tileInfo.lods[9];
+    const coordinate = tileCoordinate(metadata.tileInfo, lod, 0, 0, 4096, [0, 0]);
+    const geographic = converter.inverse(coordinate);
+    assert.ok(Math.abs(geographic[0] + 180) < 1e-10);
+    assert.ok(Math.abs(geographic[1] - 85.0511287798066) < 1e-10);
+  }
+});
+
+test("Mercator LOD follows pane ground resolution and wraps Alaska columns once", async context => {
+  const metadata = mercatorMetadata();
+  const converter = proj4("EPSG:4326", projections.albers.ak.wkt);
+  const paneAt = center => ({ id: "ak", center: converter.forward(center), parameters: { converter },
+    element: { getBoundingClientRect: () => ({ width: 1000, height: 700 }) } });
+  for (const latitude of [0, 18.45, 21.3, 13.45, 61.2, -14.28, 51.88]) {
+    const selected = paneTiles(paneAt([-176.65, latitude]), 1000000, metadata);
+    const level = selected[0].lod.level, ground = metadata.tileInfo.lods[level].resolution * Math.cos(latitude * Math.PI / 180);
+    assert.ok(ground <= 1000000 * 0.0254 / 96);
+    assert.ok(ground * 2 > 1000000 * 0.0254 / 96);
+  }
+  const panes = [paneAt([179.9, 52])], tiles = paneTiles(panes[0], 1000000, metadata);
+  assert.ok(tiles.some(tile => tile.column === 0));
+  assert.ok(tiles.some(tile => tile.column === 2 ** tile.lod.level - 1));
+  assert.equal(new Set(tiles.map(tile => `${tile.row}/${tile.column}`)).size, tiles.length);
+  assert.ok(tiles.length < 40);
+  assert.ok(tiles.every(tile => tile.column >= 0 && tile.column < 2 ** tile.lod.level && tile.row >= 0 && tile.row < 2 ** tile.lod.level));
+  const requests = [];
+  context.mock.method(globalThis, "fetch", async url => {
+    requests.push(String(url));
+    return String(url).endsWith("?f=json") ? { ok: true, json: async () => metadata } : { status: 204 };
+  });
+  const loader = createTileLoader(["https://example.com/VectorTileServer"], () => {});
+  const datasets = await loader(panes, 1000000);
+  for (const tile of tiles) assert.ok(requests.some(url => url.endsWith(`/tile/${tile.lod.level}/${tile.row}/${tile.column}.pbf`)));
+  loader.accept(datasets);
+  assert.equal(loader.needsRefresh(panes, 1000000), false);
+  assert.equal(loader.needsRefresh(panes, 500000), true);
+});
+
 test("MVT buffers clip without artificial coastline edges, preserve holes and own edges once", () => {
   const writer = new PbfWriter();
   const fixtures = [

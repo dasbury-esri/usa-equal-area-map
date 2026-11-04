@@ -4,6 +4,24 @@
 - Recorded: 2026-11-04 09:29:49+00:00[UTC]
 - Scope: Unpublished `prototype/webmap-canvas`; no main merge or publication
 
+## Web Mercator Tile Follow-Up
+
+[Session 0026](../../session-logs/2026-11-04-0026-session-log.md) extends
+`tiles=` to Web Mercator with analytic inverse projection, per-pane
+cosine-latitude ground-resolution LOD selection, and dateline-wrapped columns.
+Matching supplied Albers sources retain precedence; Mercator is the fallback
+for all panes. Plain fills and lines only, no style or label resources.
+
+Live Alaska requests, geometry and pixels establish rendering on both sides of
+180 degrees. Both default pane projections, desktop/mobile layouts and pan/zoom
+checks pass. Twelve paired anchor/scale measurements reproduce the earlier
+Albers numbers and add Pago Pago/Adak. Mercator `Marine area` contains inland
+water as well as ocean; its raw boundary maxima must not be described as pure
+coastline or projection errors. No Mercator sampled maximum is <=1px. This
+extension is not coastline-fidelity acceptance. Evidence remains outside Git.
+The owner subsequently authorized a `[skip ci]` commit and prototype-only push,
+including the existing worker-preparation parent, but no merge or publication.
+
 ## Owner Map and Tile Follow-Up
 
 Current follow-up: [session 0025](../../session-logs/2026-11-04-0025-session-log.md)

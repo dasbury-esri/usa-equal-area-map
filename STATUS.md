@@ -130,6 +130,20 @@ Pago Pago maximum offsets are 0.974px at 1:1000000 and 1.947px at 1:500000.
 The source inventory now lives in `docs/references/`. These changes are local;
 the previous session's push authorization does not authorize another push.
 
+Concurrent Mercator follow-up: [session 0026](session-logs/2026-11-04-0026-session-log.md).
+`tiles=` now accepts Web Mercator sources using analytic inversion,
+latitude-adjusted LOD selection and wrapped Alaska tile columns. All six
+anchors at both scales render; desktop/mobile interaction and live dateline
+checks pass. The paired Albers/Mercator boundary table uses identical reference
+responses. Mercator's `Marine area` also contains inland-water rings, so its
+large raw maxima are not a clean ocean-only coastline or projection-accuracy
+comparison. No Mercator case meets the sampled one-pixel maximum. The owner
+subsequently authorized a `[skip ci]` commit and prototype-only push, including
+the existing session-0025 parent commit. No merge or production publication is
+authorized. This isolated canvas worktree is available
+at `http://127.0.0.1:5176/usa-equal-area-map/experiments/webmap-canvas/`;
+the existing main-app server and older preview remain untouched.
+
 Use one repository-backed dev instance at
 `http://127.0.0.1:5173/usa-equal-area-map/`. Start it with `npm run dev` from
 this repository. Port 5173 is strict: a second start fails instead of moving

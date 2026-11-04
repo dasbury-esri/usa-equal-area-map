@@ -9,8 +9,13 @@ import proj4 from "proj4";
 import { projections } from "../src/projections.js";
 
 const base = process.env.TEST_URL ?? "http://127.0.0.1:5175/usa-equal-area-map/";
-const services = ["Albers_ContiguousUS", "Albers_Alaska_master"].map(name =>
+const sourceKind = process.env.TILE_SOURCE ?? "albers";
+assert.ok(["albers", "mercator"].includes(sourceKind));
+const services = sourceKind === "mercator"
+  ? ["https://basemaps.arcgis.com/arcgis/rest/services/World_Basemap_v2/VectorTileServer"]
+  : ["Albers_ContiguousUS", "Albers_Alaska_master"].map(name =>
   `https://tiles.arcgis.com/tiles/jIL9msH9OI208GCb/arcgis/rest/services/${name}/VectorTileServer`);
+const sourceFor = pane => services[sourceKind === "albers" && pane === "ak" ? 1 : 0];
 const boundaryService = "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/World_Administrative_Divisions/FeatureServer/0/query";
 const places = [
   { name: "San Juan", pane: "pr", center: [-66.1, 18.45] },
@@ -18,10 +23,18 @@ const places = [
   { name: "Guam", pane: "gu", center: [144.75, 13.45] },
   { name: "Anchorage", pane: "ak", center: [-149.9, 61.2] },
   { name: "Pago Pago", pane: "as", center: [-170.7, -14.28] },
-];
+  { name: "Adak", pane: "ak", center: [-176.65, 51.88] },
+].filter(place => !process.env.DATELINE_ONLY && (!process.env.TEST_PLACES || process.env.TEST_PLACES.split(",").includes(place.name)));
 const artifacts = mkdtempSync(join(tmpdir(), "usa-map-tile-coasts-"));
-const results = { base, services, boundaryService, method: "Symmetric sampled coastline-to-segment distance in a 40km square centered on each anchor, CSS pixels at DPR1", rows: [], layouts: [] };
+const results = { base, sourceKind, services, boundaryService, method: "Symmetric sampled coastline-to-segment distance in a 40km square centered on each anchor, CSS pixels at DPR1", rows: [], layouts: [] };
 console.log("Artifacts:", artifacts);
+const metadata = new Map(await Promise.all(services.map(async (url, index) => {
+  const response = await fetch(`${url}?f=json`, { signal: AbortSignal.timeout(30000) });
+  assert.ok(response.ok);
+  const text = await response.text();
+  writeFileSync(join(artifacts, `source-${index}.json`), text);
+  return [url, JSON.parse(text)];
+})));
 
 function distances(paths, targets, resolution) {
   const segments = targets.flatMap(path => path.slice(1).map((finish, index) => [path[index], finish]));
@@ -57,7 +70,8 @@ try {
     assert.ok(response.ok);
     const text = await response.text(), reference = JSON.parse(text);
     assert.ok(!reference.error && !reference.exceededTransferLimit && reference.features?.length, JSON.stringify(reference.error));
-    writeFileSync(join(artifacts, `${place.pane}-reference.json`), text);
+    const stem = place.name.toLowerCase().replaceAll(" ", "-");
+    writeFileSync(join(artifacts, `${stem}-reference.json`), text);
     const converter = proj4("EPSG:4326", projections.albers[place.pane].wkt), center = converter.forward(place.center);
     const local = point => converter.forward(point).map((value, axis) => value - center[axis]);
     const references = reference.features.flatMap(feature => feature.geometry.rings.map(ring => ring.map(local)));
@@ -81,11 +95,19 @@ try {
         let changedPixels = 0;
         for (let index = 0; index < pixels.length; index += 4) if (Math.abs(pixels[index] - pixels[0]) > 5) changedPixels++;
         return { evidence: dataset.tileEvidence, layers: [...new Set(dataset.features.map(feature => feature.attributes.tileLayer))],
-          coast: dataset.features.filter(feature => /OceanSea/i.test(feature.attributes.tileLayer)).flatMap(feature => feature.boundaryPaths ?? []),
+          coast: dataset.features.filter(feature => /OceanSea|^Marine area$/i.test(feature.attributes.tileLayer)).flatMap(feature => feature.boundaryPaths ?? []),
+          geometryTypes: [...new Set(dataset.features.map(feature => feature.geometry.type))],
           contexts: window.getWebGLContextStats(), changedPixels, glError: gl.getError(), reports: state.reports };
       }, place);
       assert.equal(measured.glError, 0); assert.equal(measured.contexts.live, 1); assert.ok(measured.changedPixels > 100);
-      assert.equal(measured.evidence.url, services[place.pane === "ak" ? 1 : 0]);
+      assert.equal(measured.evidence.url, sourceFor(place.pane));
+      if (sourceKind === "mercator") {
+        assert.ok(!measured.geometryTypes.includes("multipoint"));
+        const lods = metadata.get(measured.evidence.url).tileInfo.lods;
+        const expected = lods.find(lod => lod.resolution * Math.cos(latitude * Math.PI / 180) <= scale * 0.0254 / 96);
+        assert.deepEqual(measured.evidence.levels, [expected.level]);
+      }
+      assert.ok(!measured.layers.some(name => /\/(label|abbr)(?:\/|$)/i.test(name)));
       assert.ok(!requests.some(url => /\/resources\/styles|\/sprites|\/fonts|\/glyphs/.test(url)), "Unexpected style/label asset request");
       const tiles = measured.coast.map(path => path.map(local));
       const resolution = scale * 0.0254 / 96;
@@ -97,12 +119,14 @@ try {
         maxPixels: values.at(-1), withinOnePixel: values.at(-1) <= 1, changedPixels: measured.changedPixels,
         contexts: measured.contexts, reports: measured.reports, layers: measured.layers };
       results.rows.push(row);
+      writeFileSync(join(artifacts, `${stem}-${scale}-geometry.json`), JSON.stringify({ center: place.center, projection: projections.albers[place.pane].wkt,
+        scale, coast: measured.coast, requests }));
       console.log("COAST", JSON.stringify(row));
-      await page.screenshot({ path: join(artifacts, `${place.pane}-${scale}.png`) });
+      await page.screenshot({ path: join(artifacts, `${stem}-${scale}.png`) });
       await page.close();
     }
   }
-  for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844 }]) {
+  for (const viewport of process.env.COAST_ONLY || process.env.DATELINE_ONLY ? [] : [{ width: 1920, height: 1080 }, { width: 390, height: 844 }]) {
     const page = await browser.newPage({ viewport, deviceScaleFactor: 1 });
     await page.goto(`${base}experiments/webmap-canvas/?${new URLSearchParams({ projection: "albers", panes: "conus,ak,hi,pr,gu,as",
       scale: "1000000", tiles: services.toReversed().join(",") })}`);
@@ -130,20 +154,66 @@ try {
     for (const pane of layout.panes) {
       assert.ok(pane.changedPixels > 10, `${pane.id}: blank pane`);
       assert.ok(pane.titleFits, `${pane.id}: title overlaps`);
-      assert.equal(pane.source, services[pane.id === "ak" ? 1 : 0]);
+      assert.equal(pane.source, sourceFor(pane.id));
     }
     const pane = layout.panes[0];
     await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
     await page.mouse.down(); await page.mouse.move(pane.x + pane.width / 2 + 40, pane.y + pane.height / 2 + 20, { steps: 4 }); await page.mouse.up();
     assert.notDeepEqual(await page.evaluate(() => window.webmapCanvas.renderer.panes[0].center), pane.center);
     await page.mouse.wheel(0, -1000);
-    await page.waitForFunction(() => {
+    await page.waitForFunction(sourceKind => {
       const state = window.webmapCanvas;
-      return state.renderer.scale === 500000 && !state.refreshing && state.datasets.every(dataset => dataset.tileEvidence.levels.every(level => level === 9));
-    }, null, { timeout: 120000 });
+      return state.renderer.scale === 500000 && !state.refreshing && state.datasets.every(dataset => dataset.tileEvidence.levels.every(level => sourceKind === "mercator" ? level >= 9 : level === 9));
+    }, sourceKind, { timeout: 120000 });
     await page.screenshot({ path: join(artifacts, `layout-${viewport.width}.png`) });
     results.layouts.push({ viewport, ...layout, panAndZoom: true });
     console.log("LAYOUT", JSON.stringify(results.layouts.at(-1)));
+    await page.close();
+  }
+  if (sourceKind === "mercator" && !process.env.COAST_ONLY) {
+    const page = await browser.newPage({ viewport: { width: 1000, height: 700 }, deviceScaleFactor: 1 });
+    const requests = [];
+    page.on("request", request => requests.push(request.url()));
+    await page.goto(`${base}experiments/webmap-canvas/?${new URLSearchParams({ projection: "albers", panes: "ak",
+      scale: "4000000", tiles: services[0] })}`);
+    await page.waitForFunction(() => ["ready", "error"].includes(window.webmapCanvas?.status), null, { timeout: 120000 });
+    const dateline = await page.evaluate(async () => {
+      const state = window.webmapCanvas;
+      if (state.status !== "ready") throw new Error(JSON.stringify(state.errors));
+      const pane = state.renderer.panes[0];
+      pane.center = pane.parameters.converter.forward([180, 52]);
+      await state.refresh();
+      state.renderer.draw();
+      const dataset = state.datasets[0], gl = state.renderer.gl;
+      let eastVertices = 0, westVertices = 0;
+      for (const feature of dataset.features) for (const point of (feature.geometry.rings ?? feature.geometry.paths ?? []).flat()) {
+        if (point[0] > 170 && point[0] < 180) eastVertices++;
+        if (point[0] < -170 && point[0] > -180) westVertices++;
+      }
+      const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
+      gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      const landPixels = [0, 0];
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (Math.abs(pixels[index] - 165) <= 2 && Math.abs(pixels[index + 1] - 197) <= 2 && Math.abs(pixels[index + 2] - 163) <= 2)
+          landPixels[(index / 4) % gl.drawingBufferWidth < gl.drawingBufferWidth / 2 ? 0 : 1]++;
+      }
+      return { source: dataset.tileEvidence, eastVertices, westVertices, landPixels, reports: state.reports,
+        contexts: window.getWebGLContextStats(), glError: gl.getError() };
+    });
+    const level = dateline.source.levels[0], columns = 2 ** level;
+    for (const edge of [0, columns - 1]) {
+      assert.ok(dateline.source.keys.some(key => key[2] === edge));
+      assert.ok(requests.some(url => new RegExp(`/tile/${level}/\\d+/${edge}\\.pbf$`).test(url)));
+    }
+    assert.ok(dateline.eastVertices > 0 && dateline.westVertices > 0);
+    assert.ok(dateline.landPixels.every(count => count > 100));
+    assert.equal(dateline.contexts.live, 1);
+    assert.equal(dateline.glError, 0);
+    assert.equal(dateline.reports.length, 0);
+    assert.ok(!requests.some(url => /\/resources\/styles|\/sprites|\/fonts|\/glyphs/.test(url)));
+    results.dateline = { ...dateline, requests };
+    await page.screenshot({ path: join(artifacts, "alaska-dateline.png") });
+    console.log("DATELINE", JSON.stringify(dateline));
     await page.close();
   }
 } finally {
