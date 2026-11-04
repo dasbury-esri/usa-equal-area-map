@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { projectChunkBounds, projectionParameters } from "../experiments/webmap-canvas/projection.js";
+import { projections } from "../src/projections.js";
 import test from "node:test";
 import { parseOptions, resolveSwipe } from "../experiments/webmap-canvas/config.js";
 import { createDownloader, flattenLayers, quantizationParameters, visibleAtScale } from "../experiments/webmap-canvas/data.js";
@@ -238,4 +240,27 @@ test("audit per-feature area against a captured pre-change baseline", { skip: !p
     report.layers.push({ item: dataset.item, features: dataset.features.length, ...diagnostics });
   }
   console.log("AREA AUDIT", JSON.stringify(report));
+});
+
+test("CPU bounds use actual float vertices, cache repeats, and fail open at projection seams", () => {
+  let calls = 0;
+  const parameters = { definition: { kind: "albers", centralMeridian: 0 }, converter: { forward: ([longitude, latitude]) => {
+    calls++; return [longitude * 1000, (latitude + longitude * longitude) * 1000];
+  } } };
+  const chunk = { offset: 1, count: 1 };
+  projectChunkBounds(new Float32Array([99, 99, 99, 99, 99, 99, 1, 2, 1, 2, 3, 4]), [chunk], [{ id: "test", parameters }]);
+  assert.deepEqual(chunk.projectedBounds.test, [968, 2968, 3032, 13032]);
+  assert.equal(calls, 2);
+  const seam = { offset: 0, count: 1 };
+  projectChunkBounds(new Float32Array([180, 0, 0, 0, 0, 0]), [seam], [{ id: "test", parameters }]);
+  assert.deepEqual(seam.projectedBounds.test, [-Infinity, -Infinity, Infinity, Infinity]);
+  for (const projection of Object.values(projections)) {
+    const definition = projection.conus;
+    const origin = { offset: 0, count: 1 };
+    const values = new Float32Array(Array(3).fill([definition.centralMeridian, definition.latitudeOfOrigin]).flat());
+    projectChunkBounds(values, [origin], [{ id: "conus", parameters: projectionParameters(definition) }]);
+    assert.ok(origin.projectedBounds.conus.every(Number.isFinite));
+    assert.ok(origin.projectedBounds.conus[0] <= 0 && origin.projectedBounds.conus[2] >= 0);
+    assert.ok(origin.projectedBounds.conus[1] <= 0 && origin.projectedBounds.conus[3] >= 0);
+  }
 });

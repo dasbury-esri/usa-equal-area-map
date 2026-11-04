@@ -140,64 +140,32 @@ void main() { color = vec4(1.0); }
   return Array.from({ length: points.length }, (_, index) => [result[index * 2], result[index * 2 + 1]]);
 }
 
-export function projectChunkBounds(gl, buffer, chunks, panes) {
-  if (!chunks.length) return;
-  const program = createProgram(gl, `#version 300 es
-precision highp float;
-layout(location=0) in vec2 geographic;
-out vec2 projected;
-${projectionGLSL}
-void main() { projected = project(geographic); gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }
-`, `#version 300 es
-precision highp float;
-out vec4 color;
-void main() { color = vec4(1.0); }
-`, ["projected"]);
-  const vao = gl.createVertexArray();
-  const output = gl.createBuffer();
-  const feedback = gl.createTransformFeedback();
-  const maximum = chunks.reduce((maximum, chunk) => Math.max(maximum, chunk.count), 0);
-  const values = new Float32Array(maximum * 6);
-  try {
-    gl.bindVertexArray(vao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0);
-    gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, feedback);
-    gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, output);
-    gl.bufferData(gl.TRANSFORM_FEEDBACK_BUFFER, values.byteLength, gl.STREAM_READ);
-    gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, output);
-    gl.useProgram(program);
-    gl.enable(gl.RASTERIZER_DISCARD);
-    for (const chunk of chunks) chunk.projectedBounds = {};
-    for (const pane of panes) {
-      setProjection(gl, program, pane.parameters);
-      for (const chunk of chunks) {
-        gl.beginTransformFeedback(gl.POINTS);
-        gl.drawArrays(gl.POINTS, chunk.offset * 3, chunk.count * 3);
-        gl.endTransformFeedback();
-        gl.getBufferSubData(gl.TRANSFORM_FEEDBACK_BUFFER, 0, values, 0, chunk.count * 6);
-        const bounds = [Infinity, Infinity, -Infinity, -Infinity];
-        for (let index = 0; index < chunk.count * 6; index += 2) {
-          const horizontal = values[index], vertical = values[index + 1];
-          if (!Number.isFinite(horizontal) || !Number.isFinite(vertical)) {
-            bounds.splice(0, 4, -Infinity, -Infinity, Infinity, Infinity); break;
-          }
-          bounds[0] = Math.min(bounds[0], horizontal); bounds[1] = Math.min(bounds[1], vertical);
-          bounds[2] = Math.max(bounds[2], horizontal); bounds[3] = Math.max(bounds[3], vertical);
-        }
-        chunk.projectedBounds[pane.id] = bounds;
+export function projectChunkBounds(values, chunks, panes) {
+  for (const chunk of chunks) chunk.projectedBounds = {};
+  for (const pane of panes) for (const chunk of chunks) {
+    const cache = new Map();
+    const bounds = [Infinity, Infinity, -Infinity, -Infinity];
+    const { converter, definition } = pane.parameters;
+    for (let index = chunk.offset * 6; index < (chunk.offset + chunk.count) * 6; index += 2) {
+      const longitude = ((values[index] + 180) % 360 + 360) % 360 - 180, latitude = values[index + 1];
+      const relative = ((longitude - definition.centralMeridian + 180) % 360 + 360) % 360 - 180;
+      const nearSeam = Math.abs(relative) > 179.999;
+      const nearAntipode = definition.kind !== "albers" && Math.abs(relative) > 179
+        && Math.abs(latitude + definition.latitudeOfOrigin) < 1;
+      if (nearSeam || nearAntipode) {
+        bounds.splice(0, 4, -Infinity, -Infinity, Infinity, Infinity); break;
       }
+      if (!cache.has(longitude)) cache.set(longitude, new Map());
+      const column = cache.get(longitude);
+      if (!column.has(latitude)) column.set(latitude, converter.forward([longitude, latitude]));
+      const [horizontal, vertical] = column.get(latitude) ?? [NaN, NaN];
+      if (!Number.isFinite(horizontal) || !Number.isFinite(vertical)) {
+        bounds.splice(0, 4, -Infinity, -Infinity, Infinity, Infinity); break;
+      }
+      bounds[0] = Math.min(bounds[0], horizontal); bounds[1] = Math.min(bounds[1], vertical);
+      bounds[2] = Math.max(bounds[2], horizontal); bounds[3] = Math.max(bounds[3], vertical);
     }
-    if (gl.getError() !== gl.NO_ERROR) throw new Error("Chunk projection failed");
-  } finally {
-    gl.disable(gl.RASTERIZER_DISCARD);
-    gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
-    gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
-    gl.bindVertexArray(null);
-    gl.deleteTransformFeedback(feedback);
-    gl.deleteBuffer(output);
-    gl.deleteVertexArray(vao);
-    gl.deleteProgram(program);
+    const padding = bounds.every(Number.isFinite) ? Math.max(32, ...bounds.map(value => Math.abs(value) * 2e-6)) : 0;
+    chunk.projectedBounds[pane.id] = [bounds[0] - padding, bounds[1] - padding, bounds[2] + padding, bounds[3] + padding];
   }
 }

@@ -129,7 +129,7 @@ export class CanvasRenderer {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, mesh.values, this.gl.STATIC_DRAW);
         if (this.gl.getError() !== this.gl.NO_ERROR) throw new Error("GPU upload failed");
-        projectChunkBounds(this.gl, buffer, mesh.draws.flatMap(draw => draw.chunks), this.panes);
+        projectChunkBounds(mesh.values, mesh.draws.flatMap(draw => draw.chunks), this.panes);
         layers.push({ dataset, buffer, draws: mesh.draws, instances: mesh.instances, bytes: mesh.values.byteLength });
       } catch (error) {
         if (buffer) this.gl.deleteBuffer(buffer);
