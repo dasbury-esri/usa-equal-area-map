@@ -34,6 +34,7 @@ export function vertexCount(geometry) {
 }
 
 export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX_VERTICES,
+  geometry, generalization = GENERALIZATION_DEGREES,
   queryFeatures = (layer, query) => layer.queryFeatures(query) } = {}) {
   const downloads = new WeakMap();
   return function download(layer, fields) {
@@ -41,6 +42,7 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
     const result = (async () => {
       const query = layer.createQuery();
       query.where = layer.definitionExpression || query.where || "1=1";
+      if (geometry) { query.geometry = geometry; query.spatialRelationship = "intersects"; }
       const count = await layer.queryFeatureCount(query);
       if (!Number.isSafeInteger(count) || count < 0) throw new Error("Invalid feature count");
       if (count > maxFeatures) throw new Error(`Feature budget exceeded: ${count} > ${maxFeatures}; geometry not downloaded`);
@@ -59,7 +61,7 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
       query.returnGeometry = true;
       query.returnZ = false;
       query.returnM = false;
-      query.maxAllowableOffset = GENERALIZATION_DEGREES;
+      query.maxAllowableOffset = generalization;
       if (pagination) query.orderByFields = [`${objectIdField} ASC`];
       while (features.length < count) {
         if (pagination) { query.start = features.length; query.num = Math.min(pageSize, count - features.length); }
@@ -80,16 +82,16 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
         }
         if (features.length === count && page.exceededTransferLimit) throw new Error("Count changed or transfer limit unresolved");
       }
-      return { features, vertices, pages, count, outFields: query.outFields, generalization: GENERALIZATION_DEGREES };
+      return { features, vertices, pages, count, outFields: query.outFields, generalization };
     })();
     downloads.set(layer, result);
     return result;
   };
 }
 
-export async function loadFeatures(layers, report, checkPublicItem) {
+export async function loadFeatures(layers, report, checkPublicItem, options = {}) {
   const { executeQueryJSON } = await import("@arcgis/core/rest/query.js");
-  const download = createDownloader({ queryFeatures: (layer, query) => {
+  const download = createDownloader({ ...options, queryFeatures: (layer, query) => {
     const url = new URL(layer.url);
     if (!/\/\d+\/?$/.test(url.pathname)) url.pathname = `${url.pathname.replace(/\/$/, "")}/${layer.layerId}`;
     return executeQueryJSON(url.href, query);

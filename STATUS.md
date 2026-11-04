@@ -60,6 +60,15 @@ Inspected Albers candidates differ by datum; LAEA candidates differ by center.
 No exact complete-CRS match is established. All numbered work is recorded, with
 the documented rendering/performance/iframe acceptance gaps still open.
 
+Performance follow-up in [session 0017](session-logs/2026-11-04-0017-session-log.md)
+adds buffered area queries, scale-dependent detail, symbol batching and chunk
+culling. Final dev and production-preview pan intervals are 16.7ms versus the
+historical 116.6ms, with no requests during measured pans. Production cold
+transfer is about 7.50MB. Startup is still a major regression: about 84 seconds
+cold and 70 seconds warm, dominated by ring-containment/geometry preparation.
+These gains do not establish overall readiness. Fidelity and heavy-iframe gaps
+remain; no new production deployment is authorized.
+
 ## Local Development
 
 Use one repository-backed dev instance at

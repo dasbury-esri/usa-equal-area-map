@@ -3,9 +3,10 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchNativeBrowser } from "./native-browser.mjs";
-import { applyComparisonStyle, comparisonStyles, base, itemIds } from "./webmap-canvas-browser.mjs";
+import { applyComparisonStyle, comparisonStyles, base as devBase, itemIds } from "./webmap-canvas-browser.mjs";
 import { measureAccuracy } from "./webmap-canvas-accuracy.mjs";
 
+const base = process.env.COMPARISON_BASE ?? devBase;
 const setupOnly = process.argv.includes("--setup");
 const native = process.argv.includes("--native");
 const fourOnly = process.argv.includes("--four-only");
@@ -14,7 +15,9 @@ const selectedIds = process.env.COMPARISON_LAYERS?.split(",") ?? itemIds;
 const artifacts = mkdtempSync(join(tmpdir(), "usa-map-comparison-"));
 console.log(`Artifacts: ${artifacts}`);
 const browser = await launchNativeBrowser();
-const results = { mode: native ? "native Chrome" : "headless Chrome", layers: selectedIds, scale: 24000000, loads: [], captures: [], errors: [] };
+const runtimeMainFixture = process.env.COMPARISON_MAIN_RUNTIME === "1";
+const results = { mode: native ? "native Chrome" : "headless Chrome", base, runtimeMainFixture,
+  layers: selectedIds, scale: 24000000, loads: [], captures: [], errors: [] };
 
 async function instrument(page) {
   await page.addInitScript(ids => { window.__webmapCanvasComparisonItems = ids; }, selectedIds);
@@ -69,6 +72,28 @@ async function configureMain(page) {
   await page.evaluate(async () => { await window.viewsReady; });
   await page.locator("#drawer-toggle").click();
   await page.evaluate(async () => { await window.viewsReady; });
+  if (runtimeMainFixture) await page.evaluate(async ({ ids, styles }) => {
+    const child = document.querySelector("#drawer-iframe").contentWindow;
+    const maps = new Set([window.mainView, window.prView, ...child.drawerLifecycle.views].map(view => view.map));
+    for (const map of maps) {
+      const layers = ids.map((id, index) => {
+        const source = map.layers.find(layer => layer.portalItem?.id === id);
+        if (!source) throw new Error(`Production fixture layer missing: ${id}`);
+        const layer = source.clone();
+        const symbol = styles[index];
+        layer.renderer = { type: "simple", symbol: { type: "simple-fill", style: "solid", color: symbol.color,
+          outline: { type: "simple-line", style: "solid", color: symbol.outline.color, width: symbol.outline.width } } };
+        layer.blendMode = "normal";
+        return layer;
+      });
+      const removed = map.layers.toArray();
+      map.removeAll();
+      map.addMany(layers);
+      removed.forEach(layer => layer.destroy());
+      await Promise.all(layers.map(layer => layer.load()));
+    }
+  }, { ids: selectedIds, styles: selectedIds.map(id => applyComparisonStyle({ layers: [{ layerDefinition: { drawingInfo: {} } }] },
+    itemIds.indexOf(id)).layers[0].layerDefinition.drawingInfo.renderer.symbol) });
   await settle(page, "main");
   await alignMain(page);
 }
@@ -128,10 +153,19 @@ try {
       const timing = await page.evaluate(kind => ({ firstCompleteMs: performance.now(), devicePixelRatio,
         contexts: kind === "prototype" ? window.getWebGLContextStats().live : window.getLiveWebGLContexts(),
         renderer: kind === "prototype" ? { layers: window.webmapCanvas.renderer.layers.length,
+          timings: window.webmapCanvas.timings,
+          symbolDraws: window.webmapCanvas.renderer.layers.reduce((sum, layer) => sum + layer.draws.length, 0),
+          drawStats: window.webmapCanvas.renderer.drawStats,
+          scratchBytes: window.webmapCanvas.renderer.scratchBytes,
           uploadBytes: window.webmapCanvas.renderer.layers.reduce((sum, layer) => sum + layer.bytes, 0),
           vertices: window.webmapCanvas.datasets.map(data => ({ item: data.layer.portalItem.id, count: data.count, vertices: data.vertices, pages: data.pages })) } : null }), kind);
       const load = { kind, cache, ...timing, network: network.snapshot() };
-      if (!setupOnly && !native) load.pan = await panIntervals(page, kind);
+      if (!setupOnly && !native) {
+        load.pan = await panIntervals(page, kind);
+        const after = network.snapshot();
+        load.panTransfer = { bytes: after.bytes - load.network.bytes, requests: after.requests - load.network.requests,
+          queryRequests: after.geometryRequests - load.network.geometryRequests };
+      }
       results.loads.push(load);
       console.log("LOAD", JSON.stringify(load));
     }
@@ -158,7 +192,7 @@ try {
     if (native && kind === "prototype") results.accuracy = await measureAccuracy(page);
     await page.close();
   }
-  if (!setupOnly && !native) {
+  if (!setupOnly && !native && !process.argv.includes("--no-four")) {
     const page = await browser.context.newPage();
     await page.setViewportSize({ width: 1920, height: 1080 });
     await comparisonStyles(page);

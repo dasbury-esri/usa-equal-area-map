@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { arcgisToGeoJSON } from "@terraformer/arcgis";
 import { parseOptions, resolveSwipe } from "../experiments/webmap-canvas/config.js";
 import { createDownloader, flattenLayers, visibleAtScale } from "../experiments/webmap-canvas/data.js";
 import { compileRenderer } from "../experiments/webmap-canvas/renderers.js";
-import { continuousPath, densifyPath, polygonParts, triangulate } from "../experiments/webmap-canvas/geometry.js";
+import { continuousPath, densifyPath, partitionRings, polygonParts, prepareGeometry, triangulate, visibleRanges } from "../experiments/webmap-canvas/geometry.js";
+import { generalizationForScale, needsRefresh, queryFootprint, splitBounds } from "../experiments/webmap-canvas/coverage.js";
 
 test("prototype defaults and explicit inputs", () => {
   assert.deepEqual(parseOptions("").panes, ["conus", "ak", "hi", "pr"]);
@@ -64,6 +66,22 @@ test("budgets refuse before geometry and stop vertex overflow", async () => {
   assert.equal(layer.calls.length, 1);
 });
 
+test("buffered pane footprint splits the dateline and filters every query", async () => {
+  assert.deepEqual(splitBounds(170, 50, 200, 75), [[170, 50, 180, 75], [-180, 50, -160, 75]]);
+  const pane = { center: [0, 0], element: { getBoundingClientRect: () => ({ width: 100, height: 100 }) },
+    parameters: { converter: { inverse: ([longitude, latitude]) => [longitude / 100000 - 100, latitude / 100000 + 40] } } };
+  const geometry = queryFootprint([pane], 1000000);
+  assert.equal(geometry.rings.length, 1);
+  assert.ok(geometry.rings[0][0][0] < -102);
+  const layer = fakeLayer();
+  layer.queryFeatureCount = async query => { assert.deepEqual(query.geometry, geometry); return 3; };
+  await createDownloader({ geometry })(layer, []);
+  for (const query of layer.calls) {
+    assert.deepEqual(query.geometry, geometry);
+    assert.equal(query.spatialRelationship, "intersects");
+  }
+});
+
 test("groups preserve visibility opacity and scale restrictions", () => {
   const child = fakeLayer();
   const [entry] = flattenLayers([{ type: "group", visible: true, opacity: 0.5, minScale: 10000, layers: [child] }]);
@@ -71,6 +89,20 @@ test("groups preserve visibility opacity and scale restrictions", () => {
   assert.equal(visibleAtScale(entry, 20000), false);
   assert.equal(visibleAtScale(entry, 10000), true);
   assert.equal(flattenLayers([{ type: "group", visible: false, layers: [child] }])[0].visible, false);
+});
+
+test("scale detail refines only beyond threshold or outside cached area", async () => {
+  const geometry = { rings: [[[-120, 20], [-120, 60], [-60, 60], [-60, 20], [-120, 20]]] };
+  const loaded = { geometry, scale: 24000000 };
+  assert.equal(needsRefresh(loaded, geometry, 20000000), false);
+  assert.equal(needsRefresh(loaded, geometry, 16000000), true);
+  assert.equal(needsRefresh(loaded, { rings: [[[-121, 20], [-121, 60], [-60, 60], [-60, 20], [-121, 20]]] }, 24000000), true);
+  const generalization = generalizationForScale(24000000);
+  assert.ok(Math.abs(generalization * 111320 - 3175) < 1e-9);
+  assert.equal(generalizationForScale(12000000), generalization / 2);
+  const layer = fakeLayer();
+  await createDownloader({ generalization })(layer, []);
+  assert.equal(layer.calls[0].maxAllowableOffset, generalization);
 });
 
 test("supported renderer boundaries and explicit refusal", () => {
@@ -115,4 +147,55 @@ test("polygon triangulation preserves holes", () => {
     area += Math.abs((second[0] - first[0]) * (third[1] - first[1]) - (third[0] - first[0]) * (second[1] - first[1])) / 2;
   }
   assert.ok(Math.abs(area - 12) < 1e-9);
+});
+
+test("features share one draw for each fill and outline symbol", async () => {
+  const features = Array.from({ length: 40 }, (_, index) => ({ attributes: { index }, geometry: { type: "polygon",
+    rings: [[[index, 0], [index, 0.1], [index + 0.1, 0.1], [index + 0.1, 0], [index, 0]]] } }));
+  const symbol = { type: "simple-fill", color: [20, 40, 80, 1],
+    outline: { type: "simple-line", color: [0, 0, 0, 1], width: 1 } };
+  const budget = { vertices: 0, instances: 0 };
+  const mesh = await prepareGeometry({ features, opacity: 1, renderer: { symbolFor: () => symbol } }, budget);
+  assert.equal(mesh.draws.length, 2);
+  assert.deepEqual(mesh.draws.map(draw => draw.count), [80, 160]);
+  assert.deepEqual(mesh.draws.map(draw => draw.offset), [0, 80]);
+  assert.equal(mesh.values.length, mesh.instances * 6);
+  assert.equal(budget.instances, mesh.instances);
+  for (const draw of mesh.draws) {
+    assert.ok(draw.chunks.length > 1);
+    assert.equal(draw.chunks.reduce((sum, chunk) => sum + chunk.count, 0), draw.count);
+    for (const chunk of draw.chunks) for (let index = chunk.offset * 6; index < (chunk.offset + chunk.count) * 6; index += 2) {
+      assert.ok(mesh.values[index] >= chunk.bounds[0] && mesh.values[index] <= chunk.bounds[2]);
+      assert.ok(mesh.values[index + 1] >= chunk.bounds[1] && mesh.values[index + 1] <= chunk.bounds[3]);
+    }
+  }
+});
+
+test("culling skips offscreen chunks and merges adjacent visible ranges", () => {
+  const draw = { offset: 0, count: 12, chunks: [
+    { offset: 0, count: 3, projectedBounds: { conus: [0, 0, 1, 1] } },
+    { offset: 3, count: 3, projectedBounds: { conus: [1, 1, 2, 2] } },
+    { offset: 6, count: 3, projectedBounds: { conus: [30, 30, 40, 40] } },
+    { offset: 9, count: 3, projectedBounds: { conus: [-Infinity, -Infinity, Infinity, Infinity] } },
+  ] };
+  assert.deepEqual(visibleRanges(draw, "conus", [0, 0, 10, 10]), [{ offset: 0, count: 6 }, { offset: 9, count: 3 }]);
+  assert.deepEqual(visibleRanges(draw, "conus", [0, 0, 10, 10], false), [{ offset: 0, count: 12 }]);
+});
+
+test("ring prefilter preserves independent Terraformer conversion", () => {
+  const rings = [
+    [[0, 0], [0, 4], [4, 4], [4, 0], [0, 0]],
+    [[1, 1], [3, 1], [3, 3], [1, 3], [1, 1]],
+    [[20, 20], [20, 25], [25, 25], [25, 20], [20, 20]],
+    [[21, 21], [24, 21], [24, 24], [21, 24], [21, 21]],
+    [[40, 40], [41, 40], [41, 41], [40, 41], [40, 40]],
+  ];
+  const polygons = rings => {
+    const geometry = arcgisToGeoJSON({ rings });
+    return geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
+  };
+  const normalize = polygons => polygons.map(polygon => JSON.stringify(polygon)).sort();
+  const groups = partitionRings(rings);
+  assert.equal(groups.length, 3);
+  assert.deepEqual(normalize(groups.flatMap(polygons)), normalize(polygons(rings)));
 });

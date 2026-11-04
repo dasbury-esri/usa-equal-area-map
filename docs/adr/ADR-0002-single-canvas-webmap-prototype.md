@@ -307,3 +307,33 @@ conversion to WGS84 and pane reprojection are needed, with domain clipping and
 densification. Neither approach implements vector-tile styling: expressions,
 zoom-dependent rules, glyphs, sprites, labels and collision handling remain
 substantial work. This is research only; no tile-rendering feature was added.
+
+## Performance-First Follow-Up
+
+[Session 0017](../../session-logs/2026-11-04-0017-session-log.md) records each
+separately measured change, exact bytes, reproduction commands, and caveats.
+Buffered, dateline-split pane queries replace worldwide selection. Half-pixel
+scale-derived geographic generalization replaces the fixed initial tolerance;
+debounced area refreshes refine after a square-root-of-two zoom threshold or
+leaving coverage. Stale/incomplete results retain the prior meshes.
+
+Symbol batches contain bounded spatial chunks. Their projected-vertex bounds
+are computed once using the existing shader and checked against each pane.
+Visible ranges are GPU-compacted into a reusable scratch buffer: the fixture
+uses twenty draws across four panes, not per-feature draws. Initial submitted
+instances drop from 13.58 million to 1.69 million. Original buffers total
+81.46MB, with a 38.28MB scratch buffer; GPU copies are not network transfers.
+
+Final dev and production preview both measure 16.7ms median/p95 pan callback
+intervals, versus the historical 116.6ms median. Production cold/warm transfer
+is 7,495,950 / 35,815 bytes; measured pans issue no requests. Main remains at
+16.7ms, with seven live views versus four panes and a different production
+fixture setup. These are single samples, not GPU-present frame timings.
+
+Startup remains unaccepted: final production completes at 83.8s cold / 69.6s
+warm, dominated by about 68s of geometry preparation. Profiling identified
+Terraformer ring-containment work. A disjoint-bounds prefilter saved about
+eleven seconds while retaining the converter; it did not solve the bottleneck.
+No fidelity work or heavy four-iframe investigation was performed. Existing
+projection/stroke algorithms are unchanged. Keep this ADR provisional; smoother
+panning alone does not establish replacement readiness or authorize deployment.

@@ -3,8 +3,8 @@ import { createElement, LocateFixed, GripVertical } from "lucide";
 import { projections } from "../../src/projections.js";
 import { MIN_SCALE, MAX_SCALE, PANE_NAMES, resolveSwipe } from "./config.js";
 import { visibleAtScale } from "./data.js";
-import { prepareGeometry } from "./geometry.js";
-import { projectionGLSL, projectionParameters, createProgram, setProjection } from "./projection.js";
+import { prepareGeometry, visibleRanges } from "./geometry.js";
+import { projectionGLSL, projectionParameters, projectChunkBounds, createProgram, setProjection } from "./projection.js";
 
 export const HOME_CENTERS = Object.freeze({ conus: [-97, 38], ak: [-159, 62], hi: [-157, 20.7], pr: [-66.2, 18.2] });
 const metersPerPixel = scale => scale * 0.0254 / 96;
@@ -93,6 +93,7 @@ export class CanvasRenderer {
     this.scale = options.scale;
     this.report = report;
     this.layers = [];
+    this.culling = true;
     this.swipeSelection = options.swipe;
     this.swipeFraction = 0.5;
     this.frame = null;
@@ -103,37 +104,56 @@ export class CanvasRenderer {
     this.uniforms = Object.fromEntries(["uResolution", "uCenter", "uViewport", "uMode", "uWidth", "uSize", "uColor", "uOutline"]
       .map(name => [name, this.gl.getUniformLocation(this.program, name)]));
     this.vao = this.gl.createVertexArray();
+    this.scratch = this.gl.createBuffer();
+    this.scratchBytes = 0;
     this.panes = options.panes.map(id => {
       const parameters = projectionParameters(projections[options.projection][id]);
       return { id, parameters, center: parameters.converter.forward(HOME_CENTERS[id]),
         element: document.querySelector(`[data-pane="${id}"]`) };
     });
     canvas.addEventListener("webglcontextlost", () => report("Renderer", "WebGL context lost. Reload to restore rendering."));
-    this.observer = new ResizeObserver(() => this.requestDraw());
+    this.observer = new ResizeObserver(() => { this.requestDraw(); this.onNavigate?.(); });
     this.panes.forEach(pane => { this.observer.observe(pane.element); this.bindPane(pane); });
   }
 
-  async load(datasets) {
+  async load(datasets, { isCurrent = () => true } = {}) {
     const budget = { vertices: 0, instances: 0 };
+    const layers = [];
     for (const dataset of datasets) {
       const before = { ...budget };
+      let buffer;
       try {
         const mesh = await prepareGeometry(dataset, budget);
-        const buffer = this.gl.createBuffer();
+        buffer = this.gl.createBuffer();
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, mesh.values, this.gl.STATIC_DRAW);
-        if (this.gl.getError() !== this.gl.NO_ERROR) { this.gl.deleteBuffer(buffer); throw new Error("GPU upload failed"); }
-        this.layers.push({ dataset, buffer, draws: mesh.draws, instances: mesh.instances, bytes: mesh.values.byteLength });
+        if (this.gl.getError() !== this.gl.NO_ERROR) throw new Error("GPU upload failed");
+        projectChunkBounds(this.gl, buffer, mesh.draws.flatMap(draw => draw.chunks), this.panes);
+        layers.push({ dataset, buffer, draws: mesh.draws, instances: mesh.instances, bytes: mesh.values.byteLength });
       } catch (error) {
+        if (buffer) this.gl.deleteBuffer(buffer);
         Object.assign(budget, before);
         this.report(dataset.title, `Rejected before rendering: ${error.message}`);
       }
     }
+    if (!isCurrent() || (this.layers.length && layers.length !== datasets.length)) {
+      for (const layer of layers) this.gl.deleteBuffer(layer.buffer);
+      return false;
+    }
+    for (const layer of this.layers) this.gl.deleteBuffer(layer.buffer);
+    this.layers = layers;
+    const scratchBytes = layers.reduce((maximum, layer) => layer.draws.reduce((size, draw) => Math.max(size, draw.count * 24), maximum), 0);
+    if (scratchBytes > this.scratchBytes) {
+      this.gl.bindBuffer(this.gl.COPY_WRITE_BUFFER, this.scratch);
+      this.gl.bufferData(this.gl.COPY_WRITE_BUFFER, scratchBytes, this.gl.DYNAMIC_COPY);
+      this.scratchBytes = scratchBytes;
+    }
     this.budget = budget;
     this.swipePair = resolveSwipe(this.layers.map(layer => layer.dataset), this.swipeSelection);
-    if (this.swipePair) this.panes.forEach(pane => this.bindSwipe(pane));
+    if (this.swipePair) this.panes.filter(pane => !pane.element.querySelector(".swipe-divider")).forEach(pane => this.bindSwipe(pane));
     this.draw();
     await new Promise(resolve => requestAnimationFrame(() => { this.gl.finish(); resolve(); }));
+    return true;
   }
 
   requestDraw() {
@@ -145,6 +165,7 @@ export class CanvasRenderer {
     const gl = this.gl;
     if (gl.isContextLost()) return;
     const started = performance.now();
+    this.drawStats = { calls: 0, instances: 0, availableInstances: 0, copiedBytes: 0 };
     const ratio = devicePixelRatio;
     const width = Math.round(innerWidth * ratio);
     const height = Math.round(innerHeight * ratio);
@@ -180,11 +201,14 @@ export class CanvasRenderer {
         gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
         for (const draw of layer.draws) {
           if (!draw.count) continue;
-          for (let index = 0; index < 3; index++) {
-            gl.enableVertexAttribArray(index);
-            gl.vertexAttribPointer(index, 2, gl.FLOAT, false, 24, draw.offset * 24 + index * 8);
-            gl.vertexAttribDivisor(index, 1);
-          }
+          const padding = ((draw.size ?? 0) + (draw.width ?? 0) + 4) * metersPerPixel(this.scale);
+          const halfWidth = bounds.width * 0.5 * metersPerPixel(this.scale) + padding;
+          const halfHeight = bounds.height * 0.5 * metersPerPixel(this.scale) + padding;
+          const viewport = [pane.center[0] - halfWidth, pane.center[1] - halfHeight,
+            pane.center[0] + halfWidth, pane.center[1] + halfHeight];
+          this.drawStats.availableInstances += draw.count;
+          const ranges = visibleRanges(draw, pane.id, viewport, this.culling);
+          if (!ranges.length) continue;
           gl.uniform1i(location("uMode"), draw.mode);
           gl.uniform1f(location("uWidth"), draw.width ?? 0);
           gl.uniform1f(location("uSize"), draw.size ?? 0);
@@ -196,7 +220,29 @@ export class CanvasRenderer {
             gl.stencilFunc(gl.EQUAL, 0, 255);
             gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
           }
-          gl.drawArraysInstanced(draw.mode === 0 ? gl.TRIANGLES : gl.TRIANGLE_STRIP, 0, draw.mode === 0 ? 3 : 4, draw.count);
+          let offset = draw.offset;
+          let count = draw.count;
+          const complete = ranges.length === 1 && ranges[0].offset === draw.offset && ranges[0].count === draw.count;
+          if (!complete) {
+            gl.bindBuffer(gl.COPY_READ_BUFFER, layer.buffer);
+            gl.bindBuffer(gl.COPY_WRITE_BUFFER, this.scratch);
+            count = 0;
+            for (const range of ranges) {
+              gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, range.offset * 24, count * 24, range.count * 24);
+              count += range.count;
+            }
+            this.drawStats.copiedBytes += count * 24;
+            offset = 0;
+          }
+          gl.bindBuffer(gl.ARRAY_BUFFER, complete ? layer.buffer : this.scratch);
+          for (let index = 0; index < 3; index++) {
+            gl.enableVertexAttribArray(index);
+            gl.vertexAttribPointer(index, 2, gl.FLOAT, false, 24, offset * 24 + index * 8);
+            gl.vertexAttribDivisor(index, 1);
+          }
+          gl.drawArraysInstanced(draw.mode === 0 ? gl.TRIANGLES : gl.TRIANGLE_STRIP, 0, draw.mode === 0 ? 3 : 4, count);
+          this.drawStats.calls++;
+          this.drawStats.instances += count;
           gl.disable(gl.STENCIL_TEST);
         }
       }
@@ -245,6 +291,7 @@ export class CanvasRenderer {
     pane.center[0] += (clientX - bounds.left - bounds.width / 2) * difference;
     pane.center[1] -= (clientY - bounds.top - bounds.height / 2) * difference;
     this.requestDraw();
+    this.onNavigate?.();
   }
 
   pan(id, deltaX, deltaY) {
@@ -252,6 +299,7 @@ export class CanvasRenderer {
     pane.center[0] -= deltaX * metersPerPixel(this.scale);
     pane.center[1] += deltaY * metersPerPixel(this.scale);
     this.requestDraw();
+    this.onNavigate?.();
   }
 
   setSwipe(fraction) {
@@ -306,7 +354,10 @@ export class CanvasRenderer {
     button.replaceChildren(createElement(LocateFixed, { width: 16, height: 16 }));
     button.setAttribute("aria-label", `Recenter ${PANE_NAMES[pane.id]}`);
     button.disabled = false;
-    button.addEventListener("click", () => { pane.center = pane.parameters.converter.forward(HOME_CENTERS[pane.id]); this.requestDraw(); });
+    button.addEventListener("click", () => {
+      pane.center = pane.parameters.converter.forward(HOME_CENTERS[pane.id]);
+      this.requestDraw(); this.onNavigate?.();
+    });
     pane.element.addEventListener("wheel", event => {
       event.preventDefault();
       const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? pane.element.clientHeight : 1);

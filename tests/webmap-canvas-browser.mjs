@@ -50,6 +50,12 @@ async function run() {
     const districts = result.datasets.find(data => data.itemId === itemIds[2]);
     if (districts) assert.equal(districts.positiveAleutianVertices, 0);
     assert.ok(result.contexts.live <= 1);
+    if (process.argv.includes("--performance-only")) {
+      await verifyCulling(page);
+      await verifyAreaDetail(page);
+      await page.close();
+      return;
+    }
     if (result.status === "ready") await verifyRendering(page);
     await page.close();
     const synthetic = await browser.newPage({ viewport: { width: 800, height: 600 }, hasTouch: true });
@@ -117,6 +123,63 @@ export async function verifyRendering(page) {
   assert.deepEqual(final.downloads, initial.downloads);
   assert.deepEqual(final.contexts, { live: 1, created: 1 });
   console.log("PASS shared zoom, independent pan, current-scale recenter, stable downloads/context");
+}
+
+export async function verifyCulling(page) {
+  for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 1600 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const result = await page.evaluate(() => {
+      const renderer = window.webmapCanvas.renderer;
+      const capture = culling => {
+        renderer.culling = culling;
+        renderer.draw();
+        const gl = renderer.gl;
+        const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
+        gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return { pixels, stats: { ...renderer.drawStats } };
+      };
+      const full = capture(false);
+      const culled = capture(true);
+      let differences = 0, changed = 0;
+      for (let index = 0; index < full.pixels.length; index++) if (full.pixels[index] !== culled.pixels[index]) differences++;
+      for (let index = 0; index < culled.pixels.length; index += 4) if (Math.abs(culled.pixels[index] - 237) > 3) changed++;
+      return { differences, changed, full: full.stats, culled: culled.stats, error: renderer.gl.getError() };
+    });
+    assert.equal(result.error, 0);
+    assert.equal(result.differences, 0, JSON.stringify({ viewport, result }));
+    assert.ok(result.changed > 0);
+    assert.ok(result.culled.instances < result.full.instances);
+    assert.ok(result.culled.calls <= result.full.calls);
+    await page.screenshot({ path: `/tmp/usa-map-culling-${viewport.width}x${viewport.height}.png` });
+    console.log("CULLING", viewport, result);
+  }
+}
+
+export async function verifyAreaDetail(page) {
+  const initial = await page.evaluate(() => ({ scale: window.webmapCanvas.coverage.scale,
+    tolerance: window.webmapCanvas.coverage.generalization, layers: window.webmapCanvas.renderer.layers.length }));
+  await page.evaluate(async () => {
+    const state = window.webmapCanvas;
+    await state.refresh();
+  });
+  await page.waitForFunction(() => !window.webmapCanvas.refreshing);
+  const before = await page.evaluate(() => window.webmapCanvas.refreshCount);
+  const zoom = async factor => page.evaluate(async factor => {
+    const state = window.webmapCanvas, pane = state.renderer.panes[0], rect = pane.element.getBoundingClientRect();
+    state.renderer.zoom(pane, factor, rect.x + rect.width / 2, rect.y + rect.height / 2);
+    await state.refresh();
+  }, factor);
+  await zoom(0.85);
+  assert.equal(await page.evaluate(() => window.webmapCanvas.refreshCount), before);
+  await zoom(0.5);
+  await page.waitForFunction(before => window.webmapCanvas.refreshCount > before && !window.webmapCanvas.refreshing,
+    before, { timeout: 180000 });
+  const final = await page.evaluate(() => ({ tolerance: window.webmapCanvas.coverage.generalization,
+    layers: window.webmapCanvas.renderer.layers.length, contexts: window.getWebGLContextStats() }));
+  assert.ok(final.tolerance < initial.tolerance / 2);
+  assert.equal(final.layers, initial.layers);
+  assert.deepEqual(final.contexts, { live: 1, created: 1 });
+  console.log("PASS zoom threshold and area detail", { initial, final });
 }
 
 export async function verifySymbolsAndPinch(page) {
