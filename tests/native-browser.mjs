@@ -5,6 +5,11 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 
 export async function launchNativeBrowser() {
+  if (process.env.HEADLESS === "1") {
+    const browser = await chromium.launch({ channel: "chrome", headless: true });
+    const context = await browser.newContext();
+    return { context, close: () => browser.close() };
+  }
   const profile = mkdtempSync(join(tmpdir(), "usa-map-chrome-"));
   const executable = process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   const processHandle = spawn(executable, [

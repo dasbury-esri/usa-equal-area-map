@@ -8,13 +8,25 @@ state: active
 health: green
 priority: 2
 next_action: "fix the drawer and check for dependency updates. update dependencies as appropriate"
-updated: 2026-11-03
+updated: 2026-11-04
 extra:
   agents: [copilot-enterprise]
   predecessor: usa-equal-area-map-proto
 ---
 
 # USA Equal Area Map
+
+## Unpublished Single-Canvas Prototype
+
+Work is isolated on `prototype/webmap-canvas`, one commit per numbered step.
+No merge or publication is authorized. Step 0 retains the owner's -154 Alaska
+Albers meridian edit and places Alaska's scale bar lower-right in both layouts,
+with the globe raised to avoid overlap. Headless checks pass both projections,
+layouts and requested sizes at three scales. The unchanged -146 framing presets
+now clip the Albers panhandle by about 94px at 1920x1080 and 139px at 2560x1600;
+Attu fits. This regression is documented, not retuned. See
+[session 0014](session-logs/2026-11-04-0014-session-log.md).
+Use headless checks during development to avoid disturbing the owner's desktop.
 
 ## Local Development
 

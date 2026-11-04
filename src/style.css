@@ -49,6 +49,10 @@
   bottom: 32px;
 }
 
+.globe-trial #akViewDiv .locator-globe {
+  bottom: 52px;
+}
+
 .inset-recenter {
   display: flex;
   align-items: center;
