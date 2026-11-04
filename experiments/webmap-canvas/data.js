@@ -4,7 +4,6 @@ export const MAX_FEATURES = 50000;
 export const MAX_VERTICES = 4000000;
 export const MAX_TOTAL_VERTICES = 6000000;
 export const GENERALIZATION_DEGREES = 0.001;
-export const PAGE_SIZE = 500;
 
 const asArray = collection => collection?.toArray ? collection.toArray() : collection ?? [];
 
@@ -56,19 +55,16 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
       const query = layer.createQuery();
       query.where = layer.definitionExpression || query.where || "1=1";
       if (geometry) { query.geometry = geometry; query.spatialRelationship = "intersects"; }
-      const count = await layer.queryFeatureCount(query);
-      const countedMs = performance.now();
-      if (!Number.isSafeInteger(count) || count < 0) throw new Error("Invalid feature count");
-      if (count > maxFeatures) throw new Error(`Feature budget exceeded: ${count} > ${maxFeatures}; geometry not downloaded`);
       const features = [];
       let vertices = 0;
       let pages = 0;
       const objectIdField = layer.objectIdField;
       if (!objectIdField) throw new Error("Missing object ID field; cannot verify pagination");
-      const pageSize = Math.min(PAGE_SIZE, layer.sourceJSON?.maxRecordCount ?? PAGE_SIZE);
+      const pageSize = layer.sourceJSON?.maxRecordCount;
+      if (!Number.isSafeInteger(pageSize) || pageSize <= 0) throw new Error("Missing or invalid service maxRecordCount");
       const pagination = layer.capabilities?.query?.supportsPagination !== false;
-      const ids = pagination ? null : await layer.queryObjectIds(query);
-      if (ids && ids.length !== count) throw new Error("Feature count changed during preflight");
+      const counted = layer.queryFeatureCount(query.clone?.() ?? structuredClone(query));
+      const identified = pagination ? null : layer.queryObjectIds(query.clone?.() ?? structuredClone(query));
       const seen = new Set();
       query.outFields = [...new Set([...fields, objectIdField])];
       query.outSpatialReference = { wkid: 4326 };
@@ -78,16 +74,29 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
       query.maxAllowableOffset = null;
       query.quantizationParameters = quantizationParameters(geometry, generalization);
       if (pagination) query.orderByFields = [`${objectIdField} ASC`];
-      while (features.length < count) {
-        if (pagination) { query.start = features.length; query.num = Math.min(pageSize, count - features.length); }
-        else query.objectIds = ids.slice(features.length, features.length + pageSize);
-        const page = await queryFeatures(layer, query);
+      const requestPage = (start, ids) => {
+        const request = query.clone?.() ?? structuredClone(query);
+        if (pagination) { request.start = start; request.num = pageSize; }
+        else request.objectIds = ids.slice(start, start + pageSize);
+        return queryFeatures(layer, request).then(page => ({ page }), error => ({ error }));
+      };
+      const first = pagination ? requestPage(0) : null;
+      const [count, ids] = await Promise.all([counted, identified]);
+      const countedMs = performance.now();
+      if (!Number.isSafeInteger(count) || count < 0) throw new Error("Invalid feature count");
+      if (count > maxFeatures) throw new Error(`Feature budget exceeded: ${count} > ${maxFeatures}; layer discarded`);
+      if (ids && ids.length !== count) throw new Error("Feature count changed during preflight");
+      const pending = first ? [first] : [];
+      for (let start = first ? pageSize : 0; start < count; start += pageSize) pending.push(requestPage(start, ids));
+      for (const result of await Promise.all(pending)) {
+        if (result.error) throw result.error;
+        const { page } = result;
         if (page.transform) {
           if (typeof page.unquantize !== "function") throw new Error("Quantized geometry requires SDK decoding");
           page.unquantize();
         }
         pages++;
-        if (!page.features?.length) throw new Error("Pagination stopped before the preflight count");
+        if (!page.features?.length && count) throw new Error("Pagination stopped before the preflight count");
         for (const feature of page.features) {
           const id = feature.attributes[objectIdField];
           if (id == null || seen.has(id)) throw new Error("Missing or duplicate object ID during pagination");
@@ -101,6 +110,7 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
         }
         if (features.length === count && page.exceededTransferLimit) throw new Error("Count changed or transfer limit unresolved");
       }
+      if (features.length !== count) throw new Error("Pagination stopped before the preflight count");
       const finishedMs = performance.now();
       return { features, vertices, pages, count, outFields: query.outFields, generalization,
         downloadTimings: { startedMs, countMs: countedMs - startedMs, geometryMs: finishedMs - countedMs,

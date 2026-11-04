@@ -42,7 +42,7 @@ function fakeLayer(count = 3) {
       assert.equal(query.where, "KEEP = 1"); return count;
     }, queryFeatures: async query => {
       calls.push(structuredClone(query));
-      return { features: Array.from({ length: query.num }, (_, index) => ({ attributes: { OID: query.start + index },
+      return { features: Array.from({ length: Math.min(query.num, count - query.start) }, (_, index) => ({ attributes: { OID: query.start + index },
         geometry: { type: "point", x: index, y: 0 } })), exceededTransferLimit: query.start + query.num < count };
     } };
 }
@@ -62,12 +62,31 @@ test("one shared paginated download uses only renderer and system fields", async
   assert.equal(layer.calls[0].quantizationParameters.tolerance, 0.001);
 });
 
-test("budgets refuse before geometry and stop vertex overflow", async () => {
+test("budgets discard speculative geometry and stop vertex overflow", async () => {
   const layer = fakeLayer();
-  await assert.rejects(createDownloader({ maxFeatures: 2 })(layer, []), /geometry not downloaded/);
-  assert.equal(layer.calls.length, 0);
-  await assert.rejects(createDownloader({ maxVertices: 1 })(layer, []), /entire layer discarded/);
+  await assert.rejects(createDownloader({ maxFeatures: 2 })(layer, []), /layer discarded/);
   assert.equal(layer.calls.length, 1);
+  await assert.rejects(createDownloader({ maxVertices: 1 })(layer, []), /entire layer discarded/);
+  assert.equal(layer.calls.length, 3);
+});
+
+test("service-sized pages overlap counts and resolve in stable offset order", { timeout: 2000 }, async () => {
+  const layer = fakeLayer(2501), requests = [], count = Promise.withResolvers(), ready = Promise.withResolvers();
+  layer.sourceJSON.maxRecordCount = 1000;
+  layer.queryFeatureCount = () => count.promise;
+  const loading = createDownloader({ queryFeatures: (_layer, query) => {
+    const pending = Promise.withResolvers();
+    requests.push({ query, pending });
+    if (requests.length === 1) count.resolve(2501);
+    if (requests.length === 3) ready.resolve();
+    return pending.promise;
+  } })(layer, []);
+  await ready.promise;
+  assert.deepEqual(requests.map(request => [request.query.start, request.query.num]), [[0, 1000], [1000, 1000], [2000, 1000]]);
+  for (const { query, pending } of [...requests].reverse()) pending.resolve(await layer.queryFeatures(query));
+  const data = await loading;
+  assert.equal(data.count, 2501);
+  assert.deepEqual(data.features.map(feature => feature.attributes.OID), Array.from({ length: 2501 }, (_, index) => index));
 });
 
 test("layer counts and geometry overlap while order and aggregate admission remain deterministic", { timeout: 2000 }, async () => {
