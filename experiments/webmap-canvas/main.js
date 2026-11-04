@@ -1,7 +1,8 @@
 import "../../src/webgl-contexts.js";
 import { projections } from "../../src/projections.js";
 import { parseOptions, PANE_NAMES } from "./config.js";
-import { loadSources } from "./portal.js";
+import { loadSources, publicItem } from "./portal.js";
+import { loadFeatures } from "./data.js";
 import "./style.css";
 
 const status = document.querySelector("#status");
@@ -48,8 +49,9 @@ try {
   }
   state.sources = await loadSources(options);
   document.querySelector("#map-title").textContent = state.sources.title;
+  state.datasets = await loadFeatures(state.sources.layers, report, publicItem);
   state.status = "loaded";
-  status.textContent = `${state.sources.layers.length} source layers loaded.`;
+  status.textContent = `${state.datasets.length} feature layers ready.`;
 } catch (error) {
   state.status = "error";
   state.errors.push(error.message);

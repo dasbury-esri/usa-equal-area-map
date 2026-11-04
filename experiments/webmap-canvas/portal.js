@@ -20,7 +20,8 @@ export async function loadSources(options) {
     if (item.type !== "Web Map") throw new Error("The webmap item is not a Web Map.");
     const map = new WebMap({ portalItem: { id: item.id } });
     await map.load();
-    return { title: item.title, layers: map.layers.toArray(), map };
+    return { title: item.title, layers: [...(map.basemap?.baseLayers.toArray() ?? []), ...map.layers.toArray(),
+      ...(map.basemap?.referenceLayers.toArray() ?? [])], map };
   }
   const layers = [];
   for (const id of options.layers) {

@@ -33,7 +33,12 @@ numeric comparison against Step 0 and focused lint/syntax checks pass. See
 architecture and accumulating verification record.
 Step 2 adds an unlinked experiment entry with validated URL inputs and anonymous
 ArcGIS item loading. Node tests, lint and a headless public-item check pass;
-geometry download and rendering are not yet implemented.
+Step 3 now implements bounded shared downloads and renderer validation; six
+Node tests and the three-layer headless fixture pass. World and US/outlying
+source geometry includes positive-longitude Aleutians; congressional geometry
+does not. Default loading rejects the world item's blend mode and congressional
+CIM symbols. Owner-approved test-only styles allow like-for-like comparison
+without editing public items. Rendering is not yet implemented.
 
 ## Local Development
 

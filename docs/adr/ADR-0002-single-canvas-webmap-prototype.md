@@ -84,3 +84,40 @@ services provide no vertex count. See the public
 
 Implementation, projection accuracy, performance and tile discovery results
 are pending. No prototype acceptance or performance improvement is claimed.
+
+## Step 3: Data Contract and Results
+
+One cached promise per FeatureLayer shares a paginated query across all panes.
+Group visibility, multiplicative opacity and ancestor scale ranges are retained.
+The count preflight uses the definition expression. Queries request WGS84
+geometry and only renderer fields plus the object ID required to verify page
+identity. Page size is the smaller of 500 and advertised maxRecordCount;
+nonpagination services use object-ID batches. Empty/duplicate/inconsistent pages
+are rejected rather than accepted as complete.
+
+Limits: 50,000 features per layer before geometry download; 4,000,000 vertices
+per layer, 6,000,000 total before rendering. The initial 2,000,000-vertex cap
+correctly rejected the world fixture; the final cap accommodates it. Overflow
+rejects the entire layer, never displays a partial download. Generalization is
+`maxAllowableOffset=0.001` in output degrees (WGS84); this is a national/state
+display compromise, not survey accuracy or a bound on GPU projection error.
+Longitude ground tolerance varies by latitude. Geometry is not re-fetched on
+pan/zoom. Densification will have a separate post-processing budget.
+
+The owner approved explicit test-only styles applied by intercepted item-data
+responses, identically for both comparison applications. No portal edits or
+normal-loader approximation: the world item normally rejects `destination-atop`
+blending; congressional districts reject CIM symbols. Supported field-driven
+grouped unique values are supported, but expressions/visual variables remain
+unsupported. Missing/null-class symbols intentionally draw nothing.
+
+| Supplied layer | Features | Geometry pages | Vertices | Vertices at 170..180E, 50..55N |
+| --- | --- | --- | --- | --- |
+| World countries | 651 | 2 | 3,717,621 | 1,848 |
+| US/outlying areas | 148 | 1 | 324,181 | 1,848 |
+| 119th congressional districts | 441 | 1 | 492,304 | 0 |
+
+These are generalized source-geometry counts, not a rendering acceptance test.
+The congressional omission is confirmed and intentionally not repaired. Six
+Node tests, focused lint and the headless real-data fixture pass. Zero contexts
+are created before rendering. Output: `/tmp/usa-map-step3.log`.
