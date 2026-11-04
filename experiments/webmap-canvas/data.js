@@ -122,17 +122,19 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
 }
 
 export async function loadFeatures(layers, report, checkPublicItem, options = {}) {
-  const executeQueryJSON = options.queryFeatures ? null : (await import("@arcgis/core/rest/query.js")).executeQueryJSON;
-  const download = createDownloader({ ...options, queryFeatures: options.queryFeatures ?? ((layer, query) => {
+  const rest = options.queryFeatures ? null : await import("@arcgis/core/rest/query.js");
+  const serviceURL = layer => {
+    if (!layer.url) return layer;
     const url = new URL(layer.url);
     if (!/\/\d+\/?$/.test(url.pathname)) url.pathname = `${url.pathname.replace(/\/$/, "")}/${layer.layerId}`;
-    return executeQueryJSON(url.href, query);
-  }) });
-  const completed = await Promise.all(flattenLayers(layers).map(async entry => {
+    url.pathname = url.pathname.replace(/\/$/, "");
+    return url.href;
+  };
+  const download = createDownloader({ ...options, queryFeatures: options.queryFeatures ?? ((layer, query) => rest.executeQueryJSON(layer.url, query)) });
+  const entries = await Promise.all(flattenLayers(layers).map(async entry => {
     const { layer } = entry;
     const title = layer.title || layer.id;
     if (layer.type !== "feature") { report(title, `Skipped unsupported layer type: ${layer.type}`); return null; }
-    if (!entry.visible) { report(title, "Skipped invisible layer"); return null; }
     if (layer.portalItem?.id) await checkPublicItem(layer.portalItem.id);
     try {
       await layer.load();
@@ -141,29 +143,74 @@ export async function loadFeatures(layers, report, checkPublicItem, options = {}
     }
     entry.ranges[entry.ranges.length - 1] = { minScale: layer.minScale, maxScale: layer.maxScale };
     entry.opacity = entry.inheritedOpacity * (layer.opacity ?? 1);
-    if (!entry.ignoreVisibility && layer.visible === false) { report(title, "Skipped invisible loaded layer"); return null; }
+    if (!entry.ignoreVisibility && layer.visible === false) entry.visible = false;
+    entry.title = title;
     try {
       if (layer.featureReduction || layer.effect || layer.featureEffect) throw new Error("Unsupported aggregation or effect");
       if (layer.blendMode && layer.blendMode !== "normal") throw new Error(`Unsupported blend mode: ${layer.blendMode}`);
-      const renderer = compileRenderer(layer.renderer);
-      const data = await download(layer, renderer.fields);
-      return { ...entry, ...data, renderer, id: layer.id, title };
+      entry.renderer = compileRenderer(layer.renderer);
     } catch (error) {
       if ([401, 403, 498, 499].includes(error.details?.httpStatus ?? error.details?.raw?.code)
         || /token|credential|unauthoriz|authenticat/i.test(error.message)) throw error;
-      report(title, `Rejected: ${error.message}`);
-      return null;
+      entry.rejection = error.message;
+    }
+    return entry;
+  }));
+  const groups = new Map();
+  for (const entry of entries.filter(Boolean)) {
+    const key = serviceURL(entry.layer);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  }
+  const completed = new Map();
+  await Promise.all([...groups].map(async ([url, members]) => {
+    const layer = members[0].layer;
+    const queries = members.map(entry => {
+      const query = entry.layer.createQuery();
+      query.where = entry.layer.definitionExpression || query.where || "1=1";
+      if (options.geometry) { query.geometry = options.geometry; query.spatialRelationship = "intersects"; }
+      return query;
+    });
+    const where = [...new Set(queries.map(query => `(${query.where})`))].sort().join(" OR ");
+    const shared = { id: layer.id, url, objectIdField: layer.objectIdField, sourceJSON: layer.sourceJSON,
+      capabilities: layer.capabilities, definitionExpression: where, createQuery: () => queries[0].clone?.() ?? structuredClone(queries[0]),
+      queryFeatureCount: query => options.queryFeatures ? layer.queryFeatureCount(query) : rest.executeForCount(url, query),
+      queryObjectIds: query => options.queryFeatures ? layer.queryObjectIds(query) : rest.executeForIds(url, query) };
+    try {
+      const [memberships, data] = await Promise.all([
+        Promise.all(members.map((entry, index) => entry.layer.queryObjectIds(queries[index].clone?.() ?? structuredClone(queries[index])))),
+        download(shared, members.flatMap(entry => entry.renderer?.fields ?? [])),
+      ]);
+      const byId = new Map(data.features.map(feature => [feature.attributes[layer.objectIdField], feature]));
+      const union = new Set(memberships.flat());
+      if (union.size !== byId.size || [...union].some(id => !byId.has(id))) throw new Error("Layer membership changed during shared download");
+      if (memberships.some(ids => new Set(ids).size !== ids.length)) throw new Error("Duplicate layer membership IDs");
+      members.forEach((entry, index) => {
+        const ids = memberships[index];
+        const features = ids.map(id => byId.get(id));
+        completed.set(entry, { ...entry, ...data, id: entry.layer.id, features, count: features.length,
+          vertices: features.reduce((sum, feature) => sum + vertexCount(feature.geometry), 0), sharedDownload: data });
+      });
+    } catch (error) {
+      if ([401, 403, 498, 499].includes(error.details?.httpStatus ?? error.details?.raw?.code)
+        || /token|credential|unauthoriz|authenticat/i.test(error.message)) throw error;
+      for (const entry of members) report(entry.title, `Rejected: ${error.message}`);
     }
   }));
   const datasets = [];
   let totalVertices = 0;
-  for (const data of completed) {
+  const admitted = new Set();
+  for (const entry of entries) {
+    const data = completed.get(entry);
     if (!data) continue;
-    if (totalVertices + data.vertices > MAX_TOTAL_VERTICES) {
+    if (!data.renderer) { report(data.title, `Rejected: ${data.rejection}`); continue; }
+    const addedVertices = admitted.has(data.sharedDownload) ? 0 : data.sharedDownload.vertices;
+    if (totalVertices + addedVertices > MAX_TOTAL_VERTICES) {
       report(data.title, "Rejected: Page vertex budget exceeded; layer discarded");
       continue;
     }
-    totalVertices += data.vertices;
+    totalVertices += addedVertices;
+    admitted.add(data.sharedDownload);
     datasets.push(data);
     report(data.title, `${data.count} features, ${data.vertices} vertices, ${data.pages} geometry pages`);
   }

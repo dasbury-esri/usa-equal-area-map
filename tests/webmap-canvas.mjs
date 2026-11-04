@@ -39,12 +39,12 @@ function fakeLayer(count = 3) {
   const calls = [];
   return { calls, type: "feature", visible: true, opacity: 0.8, objectIdField: "OID", definitionExpression: "KEEP = 1",
     sourceJSON: { maxRecordCount: 2 }, createQuery: () => ({}), queryFeatureCount: async query => {
-      assert.equal(query.where, "KEEP = 1"); return count;
+      assert.ok(query.where.includes("KEEP = 1")); return count;
     }, queryFeatures: async query => {
       calls.push(structuredClone(query));
       return { features: Array.from({ length: Math.min(query.num, count - query.start) }, (_, index) => ({ attributes: { OID: query.start + index },
         geometry: { type: "point", x: index, y: 0 } })), exceededTransferLimit: query.start + query.num < count };
-    } };
+    }, queryObjectIds: async () => Array.from({ length: count }, (_, index) => index) };
 }
 
 test("one shared paginated download uses only renderer and system fields", async () => {
@@ -94,6 +94,7 @@ test("layer counts and geometry overlap while order and aggregate admission rema
   const countGate = Promise.withResolvers(), geometryReady = Promise.withResolvers();
   const layers = ["first", "second", "third"].map(id => ({ ...fakeLayer(1), id, title: id,
     renderer: { type: "simple", symbol: marker }, load: async () => {},
+    queryObjectIds: async () => [1],
     queryFeatureCount: async () => {
       counts.push(id);
       if (counts.length === 3) countGate.resolve();
@@ -116,6 +117,30 @@ test("layer counts and geometry overlap while order and aggregate admission rema
   assert.deepEqual(datasets.map(data => data.id), ["first", "third"]);
   assert.ok(reports.some(report => report.title === "second" && /vertex budget/.test(report.reason)));
   assert.ok(datasets.every(data => data.downloadTimings.totalMs >= data.downloadTimings.countMs));
+});
+
+test("shared services preserve hidden memberships and download the OR union once", async () => {
+  let counts = 0, pages = 0;
+  const memberships = [];
+  const layers = [true, false].map((visible, index) => ({ ...fakeLayer(3), id: `layer${index}`, visible,
+    url: index ? "https://example.com/FeatureServer/0/" : "https://example.com/FeatureServer", layerId: 0,
+    definitionExpression: `CLASS = ${index}`, sourceJSON: { maxRecordCount: 2000 }, load: async () => {},
+    renderer: { type: "simple", symbol: marker },
+    queryFeatureCount: async query => { counts++; assert.equal(query.where, "(CLASS = 0) OR (CLASS = 1)"); return 3; },
+    queryObjectIds: async query => { memberships.push(query.where); return index ? [1, 2] : [0, 1]; },
+  }));
+  const result = await loadFeatures(layers, () => {}, async () => {}, { queryFeatures: async (_layer, query) => {
+    pages++;
+    assert.equal(query.where, "(CLASS = 0) OR (CLASS = 1)");
+    assert.equal(query.num, 2000);
+    return { features: [0, 1, 2].map(OID => ({ attributes: { OID }, geometry: { type: "point", x: OID, y: 0 } })) };
+  } });
+  assert.equal(counts, 1); assert.equal(pages, 1);
+  assert.deepEqual(memberships, ["CLASS = 0", "CLASS = 1"]);
+  assert.deepEqual(result.map(data => data.features.map(feature => feature.attributes.OID)), [[0, 1], [1, 2]]);
+  assert.equal(result[1].visible, false);
+  assert.equal(result[0].features[1], result[1].features[0]);
+  assert.equal(result[0].sharedDownload, result[1].sharedDownload);
 });
 
 test("buffered pane footprint splits the dateline and filters every query", async () => {
