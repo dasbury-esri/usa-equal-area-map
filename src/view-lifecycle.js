@@ -7,9 +7,12 @@ export function createViewGroup(factory, onDestroy = () => {}) {
   let active;
   const saveNavigation = views => {
     for (const view of views) {
+      const anchor = window.zoomAnchorStates?.get(view);
       if (view.center && !view.destroyed) saved.set(view.container.id, {
         center: view.center.toJSON(), scale: view.scale, rotation: view.rotation,
         home: window.framingPreviewCenters.get(view)?.toJSON(),
+        zoomAnchor: anchor ? { homeCenter: anchor.homeCenter.toJSON(), homeScale: anchor.homeScale,
+          manualCenter: anchor.manualCenter?.toJSON() ?? null } : null,
       });
     }
   };
@@ -36,6 +39,11 @@ export function createViewGroup(factory, onDestroy = () => {}) {
             run.controller.abort();
           }, { capture: true, signal });
           if (snapshot?.home) window.framingPreviewCenters.set(view, new Point(snapshot.home));
+          if (snapshot?.zoomAnchor) window.zoomAnchorStates.set(view, {
+            homeCenter: new Point(snapshot.zoomAnchor.homeCenter), homeScale: snapshot.zoomAnchor.homeScale,
+            manualCenter: snapshot.zoomAnchor.manualCenter ? new Point(snapshot.zoomAnchor.manualCenter) : null,
+            panning: false,
+          });
           return view;
         },
         wait(task) {

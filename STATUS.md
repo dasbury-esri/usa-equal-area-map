@@ -16,6 +16,16 @@ extra:
 
 # USA Equal Area Map
 
+## Local Airport Recentering Repair
+
+The responsive-framing default bypassed the airport zoom watcher. The local
+`experiment/vt-basemaps` working tree restores interpolation from the actual
+responsive home center/scale, retaining manual pans, lazy initialization and
+navigation recovery. Twelve projection/layout/viewport cases pass, along with
+lint and the production build. Tiled mouse-wheel zoom remains a separate observed
+limitation, reproduced with the anchor watcher disabled. No publication or main
+branch change was made. See [session 0020](session-logs/2026-11-04-0020-session-log.md).
+
 ## Unpublished Vector-Tile Experiment
 
 Local branch `experiment/vt-basemaps` starts from `main`; no merge or deployment.
