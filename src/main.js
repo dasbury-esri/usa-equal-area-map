@@ -1,3 +1,4 @@
+import "./webgl-contexts.js";
 import Map from "@arcgis/core/Map.js";
 import { connectViewLifecycle } from "./view-lifecycle.js";
 //import WebMap from "@arcgis/core/WebMap.js";

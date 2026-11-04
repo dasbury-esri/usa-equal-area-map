@@ -7,6 +7,19 @@ import { launchNativeBrowser } from "./native-browser.mjs";
 const base = process.env.TEST_URL ?? "http://127.0.0.1:5173/usa-equal-area-map/";
 const artifacts = mkdtempSync(join(tmpdir(), "usa-map-browser-"));
 const browser = await launchNativeBrowser();
+await browser.context.addInitScript(() => {
+  window.nativeWebGLContexts = new Set();
+  for (const prototype of [HTMLCanvasElement.prototype, globalThis.OffscreenCanvas?.prototype].filter(Boolean)) {
+    const original = prototype.getContext;
+    prototype.getContext = function(...args) {
+      const context = original.apply(this, args);
+      if (context instanceof WebGLRenderingContext || context instanceof WebGL2RenderingContext) {
+        window.nativeWebGLContexts.add(context);
+      }
+      return context;
+    };
+  }
+});
 console.log(`Artifacts: ${artifacts}`);
 
 async function settled(page) {
@@ -18,12 +31,24 @@ async function settled(page) {
   }, null, { timeout: 90000 });
 }
 
+async function contextCount(page) {
+  const result = await page.evaluate(() => {
+    const child = document.querySelector("#drawer-iframe").contentWindow;
+    const captured = [...window.nativeWebGLContexts, ...(child.nativeWebGLContexts ?? [])];
+    return { nativeLive: captured.filter(context => !context.isContextLost()).length,
+      reported: window.getLiveWebGLContexts() };
+  });
+  assert.equal(result.reported.live, result.nativeLive, "App count must agree with independently captured native contexts");
+  return result.reported;
+}
+
 try {
   for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 1600 }]) {
     for (const query of ["", "?projection=albers", "?overview=globes", "?projection=albers&overview=globes"]) {
       const albers = query.includes("projection=albers");
       const globes = query.includes("overview=globes");
       const label = `${viewport.width}-${viewport.height}-${albers ? "albers" : "lambert"}-${globes ? "globes" : "standard"}`;
+      console.log(`Checking ${label}`);
       const page = await browser.context.newPage();
       await page.setViewportSize(viewport);
       await page.bringToFront();
@@ -41,6 +66,8 @@ try {
         pr: window.viewLifecycle.pr.views.length,
         iframe: document.querySelector("#drawer-iframe").contentWindow.location.href,
       })), { main: 1, pr: 0, iframe: "about:blank" });
+      const initialContexts = await contextCount(page);
+      assert.ok(initialContexts.live <= 3);
       const initial = await page.evaluate(() => ({ scale: window.mainView.scale, center: window.mainView.center.toJSON() }));
       assert.ok(initial.scale < 24000000);
       await page.locator("#drawer-toggle").click();
@@ -112,6 +139,8 @@ try {
         assert.equal(opened.layers.find(layer => layer.id === id)?.status, "loaded");
       }
       await page.screenshot({ path: join(artifacts, `${label}.png`) });
+      const openedContexts = await contextCount(page);
+      assert.ok(openedContexts.live <= opened.count + 2);
       await page.evaluate(() => { window.mainView.scale = 5000000; });
       await page.waitForFunction(() => document.querySelector("#drawer-iframe").contentWindow.akView.scale === 5000000 && window.prView.scale === 5000000);
       await page.evaluate(() => { document.querySelector("#drawer-iframe").contentWindow.akView.scale = 6000000; });
@@ -149,6 +178,7 @@ try {
         await page.waitForFunction(() => document.hidden && window.savedViews.every(saved => saved.view.destroyed)
           && window.viewLifecycle.main.views.length === 0 && window.viewLifecycle.pr.views.length === 0
           && window.viewLifecycle.drawer.views.length === 0, null, { polling: 100 });
+        assert.ok((await contextCount(page)).live <= 2);
         await page.bringToFront();
         await page.waitForFunction(() => !document.hidden && window.mainView?.ready && window.prView?.ready);
         await page.evaluate(() => window.viewsReady.then(() => true));
@@ -166,6 +196,40 @@ try {
         for (const restored of restoration) assert.ok(restored.newView && restored.sameMap
           && restored.centerError < 1 && restored.scaleError < 1 && restored.rotationError < 0.001, JSON.stringify(restored));
         await otherTab.close();
+      }
+      const twoTabCounts = [];
+      if (globes) {
+        const second = await browser.context.newPage();
+        second.on("pageerror", error => errors.push(error.message));
+        second.on("console", message => {
+          if (/Too many active WebGL contexts/i.test(message.text())) warnings.push(message.text());
+        });
+        await second.setViewportSize(viewport);
+        await second.goto(base + query);
+        await second.waitForFunction(() => window.mainView?.ready);
+        await second.locator("#drawer-toggle").click();
+        await second.locator("#pr-drawer-toggle").click();
+        await second.waitForFunction(() => window.viewLifecycle?.drawer?.views.length === 4 && window.prView?.ready);
+        await second.evaluate(() => window.viewsReady.then(() => true));
+        await settled(second);
+        for (let turn = 0; turn < 10; turn++) {
+          const foreground = turn % 2 ? second : page;
+          const background = turn % 2 ? page : second;
+          await foreground.bringToFront();
+          await background.waitForFunction(() => document.hidden && !window.mainView, null, { polling: 100 });
+          await foreground.waitForFunction(() => !document.hidden && window.mainView?.ready && window.prView?.ready);
+          await foreground.evaluate(() => window.viewsReady.then(() => true));
+          await settled(foreground);
+          const visibleCount = await contextCount(foreground);
+          const hiddenCount = await contextCount(background);
+          assert.ok(visibleCount.live <= 8 && hiddenCount.live <= 2);
+          twoTabCounts.push({ visible: visibleCount.live, hidden: hiddenCount.live, total: visibleCount.live + hiddenCount.live });
+        }
+        await page.bringToFront();
+        await page.waitForFunction(() => window.mainView?.ready && window.prView?.ready);
+        await page.evaluate(() => window.viewsReady.then(() => true));
+        await settled(page);
+        await second.close();
       }
       await page.locator("#drawer-toggle").click();
       await page.waitForFunction(scale => Math.abs(window.mainView.scale - scale) < 1, initial.scale);
@@ -196,7 +260,7 @@ try {
         + window.viewLifecycle.pr.views.length + window.viewLifecycle.drawer.views.length), 1);
       assert.deepEqual(errors, []);
       assert.deepEqual(warnings, []);
-      console.log(JSON.stringify({ label, result: "PASS", ...opened }));
+      console.log(JSON.stringify({ label, result: "PASS", initialContexts, openedContexts, twoTabCounts, ...opened }));
       await page.close();
     }
   }

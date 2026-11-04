@@ -1,5 +1,6 @@
 import MapView from "@arcgis/core/views/MapView.js";
 import Point from "@arcgis/core/geometry/Point.js";
+import { releaseAfterDestroy } from "./webgl-contexts.js";
 
 export function createViewGroup(factory, onDestroy = () => {}) {
   const saved = new Map();
@@ -52,8 +53,10 @@ export function createViewGroup(factory, onDestroy = () => {}) {
           center: view.center.toJSON(), scale: view.scale, rotation: view.rotation,
           home: window.framingPreviewCenters.get(view)?.toJSON(),
         });
+        const releaseContexts = releaseAfterDestroy(view.container);
         view.map = null;
         view.destroy();
+        releaseContexts();
       }
       onDestroy();
     },

@@ -9,7 +9,7 @@ export async function launchNativeBrowser() {
   const executable = process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   const processHandle = spawn(executable, [
     `--user-data-dir=${profile}`, "--remote-debugging-port=0", "--no-first-run",
-    "--no-default-browser-check", "about:blank",
+    "--no-default-browser-check", "--disable-backgrounding-occluded-windows", "about:blank",
   ], { stdio: ["ignore", "ignore", "pipe"] });
   try {
     const endpoint = await new Promise((resolve, reject) => {

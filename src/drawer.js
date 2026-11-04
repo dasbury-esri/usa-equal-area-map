@@ -1,3 +1,4 @@
+import "./webgl-contexts.js";
 import Point from "@arcgis/core/geometry/Point.js";
 import viewDefaults from "./view-defaults.js";
 
