@@ -38,7 +38,13 @@ Node tests and the three-layer headless fixture pass. World and US/outlying
 source geometry includes positive-longitude Aleutians; congressional geometry
 does not. Default loading rejects the world item's blend mode and congressional
 CIM symbols. Owner-approved test-only styles allow like-for-like comparison
-without editing public items. Rendering is not yet implemented.
+without editing public items. Step 4 adds one WebGL2 canvas, ellipsoidal GPU
+projection, tessellation, shared zoom/pinch, independent pan/recenter and
+geodesic scale bars. Headless pixel/interaction checks and eight unit tests pass.
+Independent ArcGIS comparisons at 1:1,000,000 and DPR 2 are below 0.04 device
+pixels for all tested points/panes. Native visual/performance acceptance remains
+pending. Explicit JSON geometry queries avoid an observed SDK coordinate-decoding
+failure for the DC district; source data is not edited.
 
 ## Local Development
 

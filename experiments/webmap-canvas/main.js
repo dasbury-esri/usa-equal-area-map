@@ -3,6 +3,7 @@ import { projections } from "../../src/projections.js";
 import { parseOptions, PANE_NAMES } from "./config.js";
 import { loadSources, publicItem } from "./portal.js";
 import { loadFeatures } from "./data.js";
+import { CanvasRenderer } from "./renderer.js";
 import "./style.css";
 
 const status = document.querySelector("#status");
@@ -50,8 +51,13 @@ try {
   state.sources = await loadSources(options);
   document.querySelector("#map-title").textContent = state.sources.title;
   state.datasets = await loadFeatures(state.sources.layers, report, publicItem);
-  state.status = "loaded";
-  status.textContent = `${state.datasets.length} feature layers ready.`;
+  status.textContent = "Preparing geometry";
+  state.renderer = new CanvasRenderer(document.querySelector("#map-canvas"), options, report);
+  await state.renderer.load(state.datasets);
+  state.status = "ready";
+  state.firstRenderMs = performance.now();
+  status.textContent = `${state.renderer.layers.length} feature layers rendered.`;
+  document.querySelector("#diagnostics details").open = state.renderer.layers.length !== state.sources.layers.length;
 } catch (error) {
   state.status = "error";
   state.errors.push(error.message);

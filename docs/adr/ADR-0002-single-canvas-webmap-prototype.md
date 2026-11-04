@@ -82,8 +82,8 @@ services provide no vertex count. See the public
 
 ### Remaining Steps
 
-Implementation, projection accuracy, performance and tile discovery results
-are pending. No prototype acceptance or performance improvement is claimed.
+Swipe, native comparison, performance and tile discovery results are pending.
+No final prototype acceptance or performance improvement is claimed.
 
 ## Step 3: Data Contract and Results
 
@@ -121,3 +121,53 @@ These are generalized source-geometry counts, not a rendering acceptance test.
 The congressional omission is confirmed and intentionally not repaired. Six
 Node tests, focused lint and the headless real-data fixture pass. Zero contexts
 are created before rendering. Output: `/tmp/usa-map-step3.log`.
+
+## Step 4: GPU Rendering
+
+One WebGL2 context renders all pane rectangles with viewport/scissor. Geometry
+is unwrapped before Terraformer ring/hole conversion, densified to at most
+0.25-degree geographic edge segments, triangulated by Earcut and uploaded once.
+Limits after processing: 6,500,000 vertices and 12,000,000 primitive instances
+across the page. A layer exceeding a limit is wholly rejected. Primitives that
+span the pane projection's antipodal longitude cut are suppressed; this is a
+regional renderer, not seamless global wrapping. Generalization error is separate
+from numerical projection accuracy. Regional dateline and hole-area tests pass.
+
+Snyder ellipsoidal WGS84 Albers and LAEA execute in float32 GLSL, with constants
+computed in float64. No CPU-projected geometry fallback was needed on the tested
+Chrome implementation. Proj4 handles center/inverse calculations; GeographicLib
+solves WGS84 endpoint distances for true-distance scale bars. Scale is shared;
+centers are independent. Wheel/two-pointer pinch, pan and recenter preserve the
+one-context/one-download model. Alaska's bar is lower-right. Recenter uses a
+Lucide icon and keeps the current scale. Other pane titles and controls fit at
+1920x1080, 2560x1600 and 390x844; mobile intentionally crops geography at the
+same scale rather than changing the map's scale independently by pane.
+
+The independent transform-feedback test compares the exact projection shader
+with ArcGIS projectOperator for ANC, Attu, Adak, HNL, SJU, Key West, Seattle,
+projection origins and actual home centers. At minimum scale 1:1,000,000, DPR 2:
+
+| Projection | CONUS max m / device px | AK | HI | PR |
+| --- | --- | --- | --- | --- |
+| Lambert | 3.405 / 0.0257 | 4.764 / 0.0360 | 2.899 / 0.0219 | 3.862 / 0.0292 |
+| Albers | 2.735 / 0.0207 | 3.029 / 0.0229 | 5.020 / 0.0379 | 2.946 / 0.0223 |
+
+This is headless numerical evidence, not native hardware acceptance, complete
+raster-pipeline parity or a guarantee at untested zoom/DPR. CPU Proj4 reference
+differences are below 0.000001m. Live/created contexts remain 1/1; GL error is zero.
+
+The three-layer Albers run exposed a downloaded-but-unrendered district layer.
+SDK `queryFeatures` returned DC OBJECTID 88 at `[101999.898091, 32522.490162]`
+while labeling it WGS84. An independent REST `f=json` query returned
+`[-77.0218, 38.8059]`. Geometry pagination now uses the SDK's explicit
+`executeQueryJSON` API. The corrected district-only render passes without editing
+the source; the complete corrected fixture will be measured in Step 6. The
+browser harness now requires rendered-layer count, not just downloaded datasets.
+
+Supported fills, solid lines and circle markers render with colors, outlines
+and opacity. Headless synthetic circle/line and touch-pinch checks pass. Captures
+show subpixel outline roughness, to be assessed against native ArcGIS in Step 6.
+Dependencies: earcut 3.2.4, proj4 2.22.0, @terraformer/arcgis 2.2.2,
+geographiclib-geodesic 2.2.0 and lucide 1.68.0. Installation audit reported zero
+vulnerabilities; focused lint and eight Node tests pass. New screenshots and
+runtime artifacts remain temporary, not repository assets.

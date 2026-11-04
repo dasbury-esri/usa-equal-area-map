@@ -17,7 +17,7 @@ h1 { font-size: 15px; margin: 0; overflow: hidden; text-overflow: ellipsis; whit
 #scale { white-space: nowrap; font-size: 13px; font-variant-numeric: tabular-nums; }
 button { font: inherit; color: inherit; cursor: pointer; border: 1px solid #9cb2b7; background: #fff; border-radius: 3px; }
 button:focus-visible, .pane:focus-visible, summary:focus-visible { outline: 2px solid #087a91; outline-offset: -2px; }
-.recenter { position: absolute; top: 8px; right: 8px; padding: 4px 6px; font-size: 11px; }
+.recenter { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; padding: 5px; font-size: 11px; }
 .scale-bar { position: absolute; left: 8px; bottom: 8px; height: 25px; border-bottom: 2px solid #263c40; text-align: center; background: #ffffffdd; font-size: 11px; white-space: nowrap; }
 [data-pane="ak"] .scale-bar { left: auto; right: 8px; }
 #diagnostics { position: fixed; left: 8px; bottom: 42px; width: min(350px, calc(100% - 16px)); background: #ffffffed; font-size: 12px; max-height: 28%; overflow: auto; border: 1px solid #9cb2b7; padding: 8px; }

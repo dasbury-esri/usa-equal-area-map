@@ -33,7 +33,8 @@ export function vertexCount(geometry) {
   return (geometry.rings ?? geometry.paths ?? []).reduce((sum, part) => sum + part.length, 0);
 }
 
-export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX_VERTICES } = {}) {
+export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX_VERTICES,
+  queryFeatures = (layer, query) => layer.queryFeatures(query) } = {}) {
   const downloads = new WeakMap();
   return function download(layer, fields) {
     if (downloads.has(layer)) return downloads.get(layer);
@@ -63,7 +64,7 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
       while (features.length < count) {
         if (pagination) { query.start = features.length; query.num = Math.min(pageSize, count - features.length); }
         else query.objectIds = ids.slice(features.length, features.length + pageSize);
-        const page = await layer.queryFeatures(query);
+        const page = await queryFeatures(layer, query);
         pages++;
         if (!page.features?.length) throw new Error("Pagination stopped before the preflight count");
         for (const feature of page.features) {
@@ -87,7 +88,12 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
 }
 
 export async function loadFeatures(layers, report, checkPublicItem) {
-  const download = createDownloader();
+  const { executeQueryJSON } = await import("@arcgis/core/rest/query.js");
+  const download = createDownloader({ queryFeatures: (layer, query) => {
+    const url = new URL(layer.url);
+    if (!/\/\d+\/?$/.test(url.pathname)) url.pathname = `${url.pathname.replace(/\/$/, "")}/${layer.layerId}`;
+    return executeQueryJSON(url.href, query);
+  } });
   const datasets = [];
   let totalVertices = 0;
   for (const entry of flattenLayers(layers)) {

@@ -3,6 +3,7 @@ import test from "node:test";
 import { parseOptions } from "../experiments/webmap-canvas/config.js";
 import { createDownloader, flattenLayers, visibleAtScale } from "../experiments/webmap-canvas/data.js";
 import { compileRenderer } from "../experiments/webmap-canvas/renderers.js";
+import { continuousPath, densifyPath, polygonParts, triangulate } from "../experiments/webmap-canvas/geometry.js";
 
 test("prototype defaults and explicit inputs", () => {
   assert.deepEqual(parseOptions("").panes, ["conus", "ak", "hi", "pr"]);
@@ -79,4 +80,31 @@ test("supported renderer boundaries and explicit refusal", () => {
   assert.throws(() => compileRenderer({ type: "heatmap" }), /Unsupported/);
   assert.throws(() => compileRenderer({ type: "simple", symbol: { type: "picture-marker" } }), /Unsupported/);
   assert.throws(() => compileRenderer({ type: "simple", symbol: marker, visualVariables: [{}] }), /Unsupported/);
+});
+
+test("dateline rings stay continuous and long geographic edges are densified", () => {
+  assert.deepEqual(continuousPath([[179.9, 52], [-179.9, 52]]), [[179.9, 52], [180.1, 52]]);
+  const dense = densifyPath([[0, 0], [1, 0]]);
+  assert.equal(dense.length, 5);
+  const [polygon] = polygonParts([[[179, 51], [179, 52], [-179, 52], [-179, 51], [179, 51]]]);
+  assert.ok(polygon[0].every(point => point[0] >= 179 && point[0] <= 181));
+  const mesh = triangulate(polygon);
+  let area = 0;
+  for (let index = 0; index < mesh.indices.length; index += 3) {
+    const [first, second, third] = mesh.indices.slice(index, index + 3).map(vertex => mesh.vertices.slice(vertex * 2, vertex * 2 + 2));
+    area += Math.abs((second[0] - first[0]) * (third[1] - first[1]) - (third[0] - first[0]) * (second[1] - first[1])) / 2;
+  }
+  assert.ok(Math.abs(area - 2) < 1e-9);
+});
+
+test("polygon triangulation preserves holes", () => {
+  const [polygon] = polygonParts([[[0, 0], [0, 4], [4, 4], [4, 0], [0, 0]], [[1, 1], [3, 1], [3, 3], [1, 3], [1, 1]]]);
+  assert.equal(polygon.length, 2);
+  const mesh = triangulate(polygon);
+  let area = 0;
+  for (let index = 0; index < mesh.indices.length; index += 3) {
+    const [first, second, third] = mesh.indices.slice(index, index + 3).map(vertex => mesh.vertices.slice(vertex * 2, vertex * 2 + 2));
+    area += Math.abs((second[0] - first[0]) * (third[1] - first[1]) - (third[0] - first[0]) * (second[1] - first[1])) / 2;
+  }
+  assert.ok(Math.abs(area - 12) < 1e-9);
 });
