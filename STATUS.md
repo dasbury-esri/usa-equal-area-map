@@ -112,8 +112,9 @@ plain symbols, tile-edge clipping and optional Guam. Eight independent coastline
 comparisons at 1:1000000 and 1:500000 have subpixel medians, but sampled maximum
 offsets exceed one pixel at San Juan, Honolulu and Guam. Anchorage passes both.
 Desktop/mobile rendering, pan/zoom, source routing, 24 contracts and 651 chunk
-budgets pass. Existing line/fidelity gaps remain. These four follow-up commits
-remain local: no new push, merge or deployment is authorized.
+budgets pass. Existing line/fidelity gaps remain. The owner subsequently
+authorized pushing these four follow-up commits and a `[skip ci]` session
+closeout to `prototype/webmap-canvas` only. No merge or deployment is authorized.
 
 ## Local Development
 

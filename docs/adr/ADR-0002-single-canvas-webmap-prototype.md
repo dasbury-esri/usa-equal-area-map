@@ -27,7 +27,9 @@ Anchorage, at both requested scales; San Juan, Honolulu and Guam fail that
 strict check. Do not infer four-location projection/fidelity acceptance. Native
 desktop/mobile pixels and pan/zoom pass; inherited subpixel line artifacts
 remain. The historical restrictions below are superseded only for this opt-in
-experiment. No current follow-up push, main merge or deployment is authorized.
+experiment. The owner subsequently authorized pushing the four measured commits
+and a `[skip ci]` session closeout to the prototype branch only. No main merge
+or deployment is authorized.
 
 ## Current Startup Follow-Up
 
