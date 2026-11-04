@@ -78,9 +78,24 @@ completing in 20.92s cold / 11.76s warm. Geometry GPU buffers are 30.28MB for th
 standalone framing or 21.40MB per smaller embed, excluding framebuffer/driver
 memory. Startup uses no GPU readback or scratch copies. Nine sampled decoded
 vertices pass independent unquantized-query checks. The identical-input area
-audit lists 24 of 962 features differing by more than 0.1%; fidelity is still
-unaccepted. All five changes are separately measured/committed locally;
-nothing from this follow-up is pushed or deployed. STATUS `next_action` is unchanged.
+audit listed 24 of 962 features differing by more than 0.1%; fidelity is still
+unaccepted. See the current follow-up below; STATUS `next_action` is unchanged.
+
+[Session 0019](session-logs/2026-11-04-0019-session-log.md) promotes uncontained
+counter-clockwise rings to outer polygons, reducing frozen-input exceptions to
+15. Layers and their counts load concurrently, with deterministic admission
+order. Generalization uses fixed square-root-of-two levels and footprints round
+outward to a 5-degree grid. Native geometry queries are GET with identical
+repeat URLs: 730/958/758 bytes standalone, 726/954/754 per smaller embed.
+Production completion is 13.63s cold / 4.70s warm standalone and 19.17s / 13.00s
+for four embeds. A separate fresh-profile repeat is 13.42s / 19.39s respectively.
+Warm queries hit browser cache; cold repeats return `CONFIG_NOCACHE` and private
+cache policy, with no demonstrated ArcGIS Online shared-cache hit. Internal
+service caching remains unobservable. Geometry buffers are 32.81MB standalone
+or 23.72MB per smaller embed, with all three layers and one context each.
+Known fidelity defects remain. Work uses the isolated `usa-equal-area-map-canvas`
+Git worktree to avoid the other agent's checkout; its production preview remains
+on port 5175. These four measured commits are not pushed or deployed.
 
 ## Local Development
 

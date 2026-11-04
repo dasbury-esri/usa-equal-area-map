@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chromium } from "playwright";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchNativeBrowser } from "./native-browser.mjs";
@@ -10,13 +12,17 @@ const base = process.env.COMPARISON_BASE ?? devBase;
 const setupOnly = process.argv.includes("--setup");
 const native = process.argv.includes("--native");
 const fourOnly = process.argv.includes("--four-only");
+const coldOnly = process.argv.includes("--cold-only");
 if (!native) process.env.HEADLESS = "1";
 const selectedIds = process.env.COMPARISON_LAYERS?.split(",") ?? itemIds;
 const artifacts = mkdtempSync(join(tmpdir(), "usa-map-comparison-"));
 console.log(`Artifacts: ${artifacts}`);
-const browser = await launchNativeBrowser();
+const profile = process.argv.includes("--fresh-profile") ? mkdtempSync(join(tmpdir(), "usa-map-profile-")) : null;
+const profileContext = profile ? await chromium.launchPersistentContext(profile, { channel: "chrome", headless: true,
+  serviceWorkers: "block" }) : null;
+const browser = profileContext ? { context: profileContext, close: () => profileContext.close() } : await launchNativeBrowser();
 const runtimeMainFixture = process.env.COMPARISON_MAIN_RUNTIME === "1";
-const results = { mode: native ? "native Chrome" : "headless Chrome", base, runtimeMainFixture,
+const results = { mode: native ? "native Chrome" : "headless Chrome", base, runtimeMainFixture, profile,
   layers: selectedIds, scale: 24000000, loads: [], captures: [], errors: [] };
 
 async function instrument(page) {
@@ -167,7 +173,7 @@ try {
     await page.setViewportSize({ width: 1920, height: 1080 });
     const network = await instrument(page);
     const url = projection => `${base}${kind === "prototype" ? `experiments/webmap-canvas/?layers=${selectedIds.join(",")}&` : "?"}projection=${projection}`;
-    for (const cache of setupOnly || native ? ["cold"] : ["cold", "warm"]) {
+    for (const cache of setupOnly || native || coldOnly ? ["cold"] : ["cold", "warm"]) {
       if (cache === "cold") await network.cdp.send("Network.clearBrowserCache");
       network.reset();
       await page.goto(url("lambert"));
@@ -237,7 +243,7 @@ try {
     await page.setViewportSize({ width: 1920, height: 1080 });
     const network = await instrument(page);
     results.four = [];
-    for (const cache of ["cold", "warm"]) {
+    for (const cache of coldOnly ? ["cold"] : ["cold", "warm"]) {
       if (cache === "cold") await network.cdp.send("Network.clearBrowserCache");
       network.reset();
       await page.goto(`${base}experiments/webmap-canvas/four.html?layers=${selectedIds.join(",")}`);
@@ -266,7 +272,8 @@ try {
               : child.performance.timeOrigin + state.firstRenderMs - performance.timeOrigin,
             timings: state?.timings, gpuCalls: child.__startupGpuCalls, gpuGeometryBytes,
             declaredBytes: renderer?.layers.reduce((sum, layer) => sum + layer.bytes, 0), changedPixels, glError: gl?.getError(),
-            draws: renderer?.drawStats.calls, features: state?.datasets.map(data => ({ item: data.layer.portalItem.id, count: data.count })) };
+            draws: renderer?.drawStats.calls, features: state?.datasets.map(data => ({ item: data.layer.portalItem.id, count: data.count,
+              downloadTimings: data.downloadTimings })) };
         });
         return { observedMs: performance.now(), completeMs: children.every(child => child.status === "ready" && child.parentReadyMs !== null)
           ? Math.max(...children.map(child => child.parentReadyMs)) : null, children };
@@ -276,6 +283,11 @@ try {
       console.log("FOUR", JSON.stringify(load));
       assert.equal(timeout, undefined, JSON.stringify(load));
       assert.equal(load.children.length, 4);
+      const queries = load.network.queries.filter(query => query.kind === "geometry");
+      assert.ok(queries.length >= selectedIds.length * 4);
+      assert.ok(queries.every(query => query.method === "GET"));
+      if (results.four.length > 1) assert.deepEqual(queries.map(query => query.url).sort(),
+        results.four[0].network.queries.filter(query => query.kind === "geometry").map(query => query.url).sort());
       for (const child of load.children) {
         assert.ok(child.status === "ready" && child.rendered === selectedIds.length && child.contexts.live === 1, JSON.stringify(child));
         assert.ok(child.changedPixels > 0);
@@ -288,6 +300,32 @@ try {
     await page.close();
   }
   if (results.accuracy) for (const row of results.accuracy.rows) assert.ok(row.maxPixels <= 1);
+  if (process.env.COMPARISON_REFERENCE) {
+    const reference = JSON.parse(readFileSync(process.env.COMPARISON_REFERENCE, "utf8"));
+    assert.ok(profile && reference.profile && profile !== reference.profile, "Repeat requires distinct fresh profiles");
+    assert.equal(results.base, reference.base);
+    const compare = (label, current, previous) => {
+      const geometry = load => load.network.queries.filter(query => query.kind === "geometry");
+      const actual = geometry(current), prior = geometry(previous);
+      assert.deepEqual(actual.map(query => query.url).sort(), prior.map(query => query.url).sort(), `${label}: URL mismatch`);
+      assert.ok([...actual, ...prior].every(query => query.status === 200));
+      return { label, identicalURLs: true, queries: [...new Set(actual.map(query => query.url))].map(url => {
+        const first = prior.filter(query => query.url === url && !query.cache && query.bytes > 0);
+        const second = actual.filter(query => query.url === url && !query.cache && query.bytes > 0);
+        assert.ok(first.length && second.length, `${label}: every URL must reach the network in both cold profiles`);
+        const evidence = query => ({ ttfbMs: query.ttfbMs, durationMs: query.durationMs, bytes: query.bytes, headers: query.headers });
+        return { service: new URL(url).pathname, urlLength: url.length,
+          urlSHA256: createHash("sha256").update(url).digest("hex"), first: first.map(evidence), second: second.map(evidence) };
+      }) };
+    };
+    results.repeatComparison = [];
+    for (const load of results.loads.filter(load => load.cache === "cold" && load.kind === "prototype")) {
+      results.repeatComparison.push(compare("single", load, reference.loads.find(previous => previous.kind === load.kind && previous.cache === "cold")));
+    }
+    if (results.four?.length) results.repeatComparison.push(compare("four", results.four.find(load => load.cache === "cold"),
+      reference.four.find(load => load.cache === "cold")));
+    console.log("REPEAT", JSON.stringify(results.repeatComparison));
+  }
   assert.deepEqual(results.errors, []);
 } finally {
   writeFileSync(join(artifacts, "results.json"), JSON.stringify(results, null, 2));

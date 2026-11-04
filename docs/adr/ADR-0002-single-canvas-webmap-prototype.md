@@ -367,3 +367,43 @@ eleven seconds while retaining the converter; it did not solve the bottleneck.
 No fidelity work or heavy four-iframe investigation was performed. Existing
 projection/stroke algorithms are unchanged. Keep this ADR provisional; smoother
 panning alone does not establish replacement readiness or authorize deployment.
+
+## Startup and Canonical-Query Follow-Up
+
+[Session 0018](../../session-logs/2026-11-04-0018-session-log.md) replaces
+Terraformer with orientation/point-in-polygon assignment, uses explicitly decoded
+view quantization, computes conservative chunk bounds with CPU proj4 and draws
+visible ranges without scratch copies. Startup no longer uses GPU readback.
+
+[Session 0019](../../session-logs/2026-11-04-0019-session-log.md) promotes
+uncontained counter-clockwise rings to independent clockwise outer polygons;
+15 of the frozen 962 features still differ by more than 0.1% from the earlier
+triangulation baseline. It runs layer setup, counts and geometry concurrently,
+then admits whole layers against the aggregate budget in original input order.
+Transient downloaded geometry can exceed the admitted aggregate budget, though
+individual layer budgets remain enforced.
+
+Tolerance floors to fixed square-root-of-two levels anchored at scale 1000000.
+Buffered geographic footprints round outward to a 5-degree grid before dateline
+splitting, with deterministic box ordering. Refinement compares those same
+levels. Native geometry queries use GET; exact URL equality passes for cold/warm
+and independent browser profiles. Standalone lengths are 730/958/758 ASCII bytes;
+960x540 embeds use 726/954/754. Outward rounding and finer tolerance increase the
+selected geometry, so performance is not an identical-workload comparison.
+
+Current production standalone completion: 13.63s cold / 4.70s warm, with
+3.63s / 3.66s preparation. Four independent embeds complete in 19.17s / 13.00s,
+all with three rendered layers, one context, nonblank pixels and no GL errors.
+Geometry buffers total 32,810,232 bytes standalone or 23,718,024 per smaller
+embed, excluding framebuffer/driver memory. Startup has no GPU buffer copies
+or readbacks; verification readPixels occurs after recorded completion.
+
+A fresh-profile repeat against byte-identical geometry URLs completes in
+13.42s standalone / 19.39s for four embeds. Cold wire responses show
+`CONFIG_NOCACHE` and private cache policy, not a demonstrated shared-cache hit;
+warm responses are browser-cache hits. Internal service/database caching cannot
+be inferred from these headers or single-sample timings. The session log records
+per-layer TTFB, complete phases, exact requests and the repaired duplicate-byte
+accounting assertion. Known stroke/far-field fidelity defects and a real owner
+WebMap remain acceptance gaps. Keep this ADR provisional; no current push,
+merge, deployment or portal changes are authorized.
