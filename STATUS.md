@@ -65,12 +65,14 @@ reassurance. This scope follows the owner's feedback in session 0009.
 
 ## Globe Scale Bar Release
 
-Owner-authorized for publication in [session 0013](session-logs/2026-11-03-0013-session-log.md):
+Published with owner approval in [session 0013](session-logs/2026-11-03-0013-session-log.md):
 removed the globe-layout `bottom: 76px`
 override that raised the CNMI/Guam, American Samoa and Hawaii scale bars.
 Visible bars now use the normal 5px lower-left inset. Focused Lambert/Albers
 checks passed at two sizes and three scales without globe overlap; compact-pane
 hiding is unchanged. See [session 0012](session-logs/2026-11-03-0012-session-log.md).
+The Node 22 build and all 578 chunk budgets passed. Pages deployment succeeded;
+both live entry points, both main bundles and CSS match the verified local build.
 
 ## View Retention Release
 
@@ -144,21 +146,21 @@ see [session 0007](session-logs/2026-11-03-0007-session-log.md) for the release 
 
 ## Published Release
 
-- Runtime commit: `1d0211d1fab4c7afe744320c76578f4769946850`.
-- Pages deployment `7537579534` succeeded at
-  2026-11-03 20:03:55-08:00[America/Los_Angeles] in
-  [run 41770740289](https://github.com/dasbury-esri/usa-equal-area-map/actions/runs/41770740289).
+- Runtime commit: `2b7585a9ac9bc3ddf01c14fe0e77db0f8c8da7ea`.
+- Pages deployment `7537722075` succeeded at
+  2026-11-03 20:14:07-08:00[America/Los_Angeles] in
+  [run 41771815447](https://github.com/dasbury-esri/usa-equal-area-map/actions/runs/41771815447).
 - [Production](https://dasbury-esri.github.io/usa-equal-area-map/) and
   [Albers](https://dasbury-esri.github.io/usa-equal-area-map/?projection=albers)
   now use responsive framing without an opt-in parameter.
-- Final default/Albers/standard/globe regression checks passed at 1920x1080 and
-  2560x1600, including loaded layers, scale linking, retained views, globe pixels
-  and 40 stress switches. The earlier focused test also passed 30 two-/three-tab
-  switches with zero new layer queries and three actual-loss recovery cases.
-- Both live HTML entry points and 26 selected JavaScript/style assets match the
-  tested build byte-for-byte. The browser matrix was not repeated after publication.
-  See [session 0011](session-logs/2026-11-03-0011-session-log.md) for verification;
-  session 0007 retains the previous release's historical results and limitations.
+- Focused globe scale-bar checks passed both projections at 1280x800 and
+  1920x1080, each at three scales. Earlier broad regression and retention/recovery
+  evidence is retained in sessions 0010/0011; those suites were not rerun for
+  this CSS-only runtime change.
+- Both live HTML entry points, both main JavaScript bundles and the stylesheet
+  match the verified build byte-for-byte. See
+  [session 0013](session-logs/2026-11-03-0013-session-log.md) for current publication
+  evidence; sessions 0007/0011 retain the earlier release records.
 
 ## Current state
 
