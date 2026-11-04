@@ -7,10 +7,17 @@ export default defineConfig({
   server: { port: 5173, strictPort: true },
   base: "/usa-equal-area-map/",
   build: {
+    chunkSizeWarningLimit: 1450,
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         drawer: fileURLToPath(new URL("./drawer.html", import.meta.url)),
+      },
+      output: {
+        manualChunks: {
+          "date-time": ["luxon"],
+          "html-sanitizer": ["@esri/arcgis-html-sanitizer"],
+        },
       },
     },
   },

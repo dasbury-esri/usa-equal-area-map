@@ -29,6 +29,40 @@ including [src/main.js](src/main.js); publish only after owner review and
 explicit approval. The approved release below is now live; subsequent local
 edits still require a separately approved production push.
 
+Before a clean dependency install, stop the port-5173 Vite process, run `npm ci`,
+restart `npm run dev`, and reload every open local tab. A clean install removes
+the optimizer cache; old browser modules can otherwise keep requesting deleted
+hashed chunks. Do not exclude the ArcGIS SDK merely because stale URLs fail.
+
+## Local Tooling Warning Fixes
+
+Not yet published: explicit install-script decisions allow only esbuild 0.25.3
+and deny Vaadin/fsevents scripts. A clean install reports no unreviewed scripts
+and zero vulnerabilities. The build separates date/sanitizer libraries, reducing
+the shared main chunk from 1.508 MB to 1.414 MB. A measured 1.45 MB SDK warning
+ceiling is paired with enforced per-chunk budgets, retaining a 500 KB default
+for other chunks. This does not claim a comparable reduction in total startup
+JavaScript or split the SDK's large individual modules.
+
+Builds and budget checks pass on Node 22/26. Both built-output and refreshed-dev
+native suites pass eight cases and 40 tab switches each. The stale local tabs
+were reloaded; current loader chunks return HTTP 200. Only the canonical dev
+server remains running. See [session 0008](session-logs/2026-11-03-0008-session-log.md).
+The published runtime below is unchanged. These changes are included in the
+owner-requested commit/push with `[skip ci]`, not a new deployment; see
+[session 0009](session-logs/2026-11-03-0009-session-log.md).
+
+## Verification Scope
+
+Match verification to the affected behavior. Documentation and install-script
+policy changes need focused checks, not rendering suites. Small UI/configuration
+changes need the affected browser case; bundle splitting needs a built-output
+smoke check. Broaden coverage for shared map/projection/lifecycle changes or a
+concrete failure. Reuse earlier results when the tested code is unchanged.
+For publication, run one final regression rather than repeatedly testing the
+same candidate. Do not rerun full dev and built rendering matrices merely for
+reassurance. This scope follows the owner's feedback in session 0009.
+
 ## Published Performance Changes
 
 Published: Canvas 2D locator globes replace Three.js; globe layouts

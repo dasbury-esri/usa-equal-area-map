@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { ESLint } from "eslint";
 import { getWindow } from "@lit-labs/ssr/lib/dom-shim.js";
 
 const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
+const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+assert.deepEqual(manifest.allowScripts, {
+  [`esbuild@${lock.packages["node_modules/esbuild"].version}`]: true,
+  "@vaadin/vaadin-usage-statistics": false,
+  fsevents: false,
+});
 assert.ok(!Object.keys(lock.packages).some(path => /\/(node-domexception|fetch-blob)$/.test(path)));
 const patchedMatchers = Object.entries(lock.packages)
   .filter(([path]) => path.endsWith("/minimatch"));
@@ -41,3 +47,19 @@ const controller = new AbortController();
 controller.abort();
 await assert.rejects(getWindow({}).fetch("data:text/plain,aborted", { signal: controller.signal }), { name: "AbortError" });
 console.log("PASS: patched matcher consumers, real lint rules, native SSR fetch and abort, no deprecated dependency");
+
+if (process.argv.includes("--build")) {
+  const assets = new URL("../dist/assets/", import.meta.url);
+  const budgets = { main: 1450000, ProjectionTransformation: 1250000,
+    VideoController: 750000, geometryEngineBase: 650000 };
+  const files = readdirSync(assets).filter(name => name.endsWith(".js"));
+  assert.ok(files.some(name => name.startsWith("date-time-")));
+  assert.ok(files.some(name => name.startsWith("html-sanitizer-")));
+  for (const name of files) {
+    const category = Object.keys(budgets).find(prefix => name.startsWith(`${prefix}-`));
+    const limit = budgets[category] ?? 500000;
+    const bytes = statSync(new URL(name, assets)).size;
+    assert.ok(bytes <= limit, `${name}: ${bytes} bytes exceeds ${limit}-byte budget`);
+  }
+  console.log(`PASS: ${files.length} JavaScript chunks within measured SDK/default budgets`);
+}
