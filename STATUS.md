@@ -42,11 +42,36 @@ only the standard overview owns them and its separate retained layer clones.
 All four projection/layout combinations passed native Chrome at 1920x1080 and
 2560x1600 for each implementation step. Final two-tab globe stress passed
 40 switches with no context accumulation or context-limit warning. The build
-passed; dependency audit findings and the large-bundle warning remain.
+passed. Dependency audit findings are resolved by the local work below;
+the large-bundle warning remains.
 
 See [session 0004](session-logs/2026-11-03-0004-session-log.md) for counts,
 validation limitations and the proposed, unimplemented iframe migration.
-No push or deployment is authorized for these performance changes.
+The owner authorized publication in session 0007; deployment verification is pending.
+
+## Local Scale Bar and Dependency Repairs
+
+Not yet published: all seven ScaleBar construction sites now use the installed
+4.32 `arcgis-scale-bar` component, with explicit view-owned cleanup. Globe mode
+still creates only six bars. Dual units, positions, true line lengths and compact
+pane hiding match the former widgets across all ten ADR landscape sizes and
+both projections/layouts. Final native checks passed 40 cases at three scales,
+panel/tab lifecycle checks, and the existing eight-case browser regression suite.
+
+A fresh `npm ci` and `npm audit` report zero vulnerabilities, down from 18.
+The deprecated `node-domexception` dependency is absent. Compatible security
+updates, an owner-approved ESLint 10/React lint migration and two targeted
+overrides resolve the dependency issues without changing ArcGIS or React runtime
+versions. Dependency tests and production builds pass on Node 22.22.0 and
+26.13.0; the fresh installation used Node 26.13.0/npm 11.20.0.
+
+The updated lint configuration reports 16 findings in untouched CSS/reference
+code; changed JavaScript passes. npm still reports three install-script approval
+warnings. No blanket script approval was added. These results supersede the
+historical pending-audit statements below, not the production release record.
+See [session 0006](session-logs/2026-11-03-0006-session-log.md) for exact versions,
+override rationale, evidence and limitations. Publication is now authorized;
+see [session 0007](session-logs/2026-11-03-0007-session-log.md) for the release outcome.
 
 ## Published Release
 

@@ -8,6 +8,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "test:browser": "node tests/browser-smoke.mjs",
+    "test:scale-bars": "node tests/scale-bars.mjs",
+    "test:dependencies": "node tests/dependencies.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -22,12 +24,12 @@
   "homepage": "https://github.com/dasbury-esri/usa-equal-area-map#readme",
   "description": "",
   "devDependencies": {
-    "@eslint/css": "^0.7.0",
-    "@eslint/js": "^9.25.1",
+    "@eslint/css": "^2.0.1",
+    "@eslint/js": "^10.0.1",
     "@vitejs/plugin-react": "^4.4.1",
-    "eslint": "^9.25.1",
-    "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-x": "^5.28.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^16.0.0",
     "playwright": "^1.64.1",
     "prettier": "^3.5.3",
@@ -38,10 +40,15 @@
     "@arcgis/map-components": "^4.32.14",
     "@tanstack/react-query": "^5.74.4",
     "d3-geo": "^3.1.1",
-    "fetch-blob": "^4.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "topojson-client": "^3.1.0",
     "world-atlas": "^2.0.2"
+  },
+  "overrides": {
+    "@lit-labs/ssr": {
+      "node-fetch": "npm:node-fetch-native@1.6.7"
+    },
+    "minimatch": "11.0.1"
   }
 }

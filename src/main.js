@@ -10,7 +10,7 @@ import Extent from "@arcgis/core/geometry/Extent.js";
 import * as projectOperator from "@arcgis/core/geometry/operators/projectOperator.js";
 //import * as Projection from "@arcgis/core/geometry/projection.js";
 import SpatialReference from "@arcgis/core/geometry/SpatialReference.js";
-import ScaleBar from "@arcgis/core/widgets/ScaleBar.js";
+import "@arcgis/map-components/components/arcgis-scale-bar";
 //import Compass from "@arcgis/core/widgets/Compass.js";
 import Graphic from "@arcgis/core/Graphic.js";
 import * as reactiveUtils from "@arcgis/core/core/reactiveUtils.js";
@@ -33,6 +33,19 @@ if (globeTrial || albersProj || framingPreview) {
     if (framingPreview) drawerURL.searchParams.set("framing", "preview");
     drawerFrame.dataset.src = drawerURL.href;
   }
+}
+
+function addScaleBar(view, position = "bottom-left") {
+  const scaleBar = Object.assign(document.createElement("arcgis-scale-bar"), {
+    view,
+    position,
+    unit: "dual",
+  });
+  view.ui.add(scaleBar, { position });
+  view.addHandles({ remove: () => {
+    scaleBar.remove();
+    scaleBar.destroy().catch(error => console.error("Scale bar cleanup failed", error));
+  } });
 }
 
 function disableDefaultPopupActions(view) {
@@ -521,14 +534,7 @@ const App =  () => {
     if (typeof mainView === "undefined") {
       console.error("mainView is not defined. Ensure map2.js is loaded and mainView is attached to the window object.");
     }
-    let scaleBar = new ScaleBar({
-      view: mainView,
-      unit: "dual" // Options are metric, imperial, or dual
-    });
-    // Add widget to the bottom left corner of the view
-    mainView.ui.add(scaleBar, {
-      position: "bottom-left"
-    });
+    addScaleBar(mainView);
     // Turn off unwanted layers in CONUS map
     mainView.on("layerview-create", (event) => {
         if (event.layer.id === "latlongLayer") {
@@ -583,7 +589,7 @@ const App =  () => {
         event.layerView.visible = false;
       }
     });
-    prView.ui.add(new ScaleBar({ view: prView, unit: "dual" }), "bottom-left");
+    addScaleBar(prView);
     disableDefaultPopupActions(prView);
     const prCenterAtScale = connectZoomAnchor(prView, viewDefaults.puertoRico);
     await scope.wait(prView.when());
@@ -638,14 +644,7 @@ const App =  () => {
       }  
     });
 
-    let akScaleBar = new ScaleBar({
-      view: akView,
-      unit: "dual" // Options are metric, imperial, or dual
-    });
-    // Add widget to the bottom left corner of the view
-    akView.ui.add(akScaleBar, {
-      position: "bottom-left"
-    });
+    addScaleBar(akView);
 /*        let akCompass = new Compass({
       view: akView
     });
@@ -697,13 +696,7 @@ const App =  () => {
         }
     });
     if (overView) {
-    let ovScaleBar = new ScaleBar({
-      view: overView,
-      unit: "dual" // Options are metric, imperial, or dual
-    });
-    overView.ui.add(ovScaleBar, {
-      position: "bottom-right"
-    });
+    addScaleBar(overView, "bottom-right");
     // Turn off unwanted layers in GU/MP
     overView.on("layerview-create", (event) => {
       if (event.layer.id === "imageryLayer") {
@@ -750,14 +743,7 @@ const App =  () => {
           components: []//["attribution"]
         }
     });
-    let guScaleBar = new ScaleBar({
-      view: guView,
-      unit: "dual" // Options are metric, imperial, or dual
-    });
-    // Add widget to the bottom left corner of the view
-    guView.ui.add(guScaleBar, {
-      position: "bottom-left"
-    });
+    addScaleBar(guView);
     // Turn off unwanted layers in GU/MP
     guView.on("layerview-create", (event) => {
       if (event.layer.id === "latlongLayer") {
@@ -798,14 +784,7 @@ const App =  () => {
           components: []//["attribution"]
         }
     });
-    let asScaleBar = new ScaleBar({
-      view: asView,
-      unit: "dual" // Options are metric, imperial, or dual
-    });
-    // Add widget to the bottom left corner of the view
-    asView.ui.add(asScaleBar, {
-      position: "bottom-left"
-    });
+    addScaleBar(asView);
     // Turn off unwanted layers in AS map
     asView.on("layerview-create", (event) => {
       if (event.layer.id === "latlongLayer") {
@@ -846,14 +825,7 @@ const App =  () => {
           components: []//["attribution"]
         }
     });
-    let hiScaleBar = new ScaleBar({
-      view: hiView,
-      unit: "dual" // Options are metric, imperial, or dual
-    });
-    // Add widget to the bottom left corner of the view
-    hiView.ui.add(hiScaleBar, {
-      position: "bottom-left"
-    });
+    addScaleBar(hiView);
     // Turn off unwanted layers in HI map
     hiView.on("layerview-create", (event) => {
       if (event.layer.id === "latlongLayer") {
