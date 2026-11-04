@@ -31,6 +31,9 @@ Step 1 centralizes all 14 projection definitions in `src/projections.js`;
 numeric comparison against Step 0 and focused lint/syntax checks pass. See
 [ADR-0002](docs/adr/ADR-0002-single-canvas-webmap-prototype.md) for the provisional
 architecture and accumulating verification record.
+Step 2 adds an unlinked experiment entry with validated URL inputs and anonymous
+ArcGIS item loading. Node tests, lint and a headless public-item check pass;
+geometry download and rendering are not yet implemented.
 
 ## Local Development
 

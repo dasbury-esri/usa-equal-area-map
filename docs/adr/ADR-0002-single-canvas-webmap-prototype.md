@@ -65,6 +65,21 @@ All 14 generated WKT parameter sets were independently compared with committed
 Step 0 definitions (`416c8aa`); numeric parameters and WGS84 ellipsoid match.
 Focused syntax and ESLint checks pass. No rendering change is intended.
 
+### Step 2
+
+Unlinked experiment entry and Vite input implemented. URL defaults: Lambert,
+CONUS/AK/HI/PR, scale 1:24,000,000. Explicit scale bounds are 1:1,000,000 through
+1:80,000,000; `scale=` is an additional comparison/test parameter. Two Node
+contract tests and focused lint pass. The supplied world item loads anonymously
+in headless Chrome, with zero created/live WebGL contexts before rendering.
+The real owner web-map fixture is still deferred.
+
+The owner approved feature-count preflight plus incremental vertex enforcement
+after each page and before triangulation/upload, with whole-layer rejection on
+overflow. This replaces the literal pre-download vertex requirement where
+services provide no vertex count. See the public
+[query contract](https://developers.arcgis.com/rest/services-reference/enterprise/query-feature-service-layer/).
+
 ### Remaining Steps
 
 Implementation, projection accuracy, performance and tile discovery results
