@@ -3,9 +3,13 @@ export const WGS84 = Object.freeze({ semiMajor: 6378137, inverseFlattening: 298.
 function definition(kind, name, centralMeridian, latitudeOfOrigin, standardParallel1, standardParallel2) {
   const parameters = { centralMeridian, latitudeOfOrigin, falseEasting: 0, falseNorthing: 0 };
   if (kind === "albers") Object.assign(parameters, { standardParallel1, standardParallel2 });
-  const names = { centralMeridian: "Central_Meridian", latitudeOfOrigin: "Latitude_Of_Origin",
-    falseEasting: "False_Easting", falseNorthing: "False_Northing",
-    standardParallel1: "Standard_Parallel_1", standardParallel2: "Standard_Parallel_2" };
+  const names = {
+    centralMeridian: "Central_Meridian",
+    latitudeOfOrigin: "Latitude_Of_Origin",
+    falseEasting: "False_Easting",
+    falseNorthing: "False_Northing",
+    standardParallel1: "Standard_Parallel_1",
+    standardParallel2: "Standard_Parallel_2" };
   const method = kind === "albers" ? "Albers_Equal_Area" : "Lambert_Azimuthal_Equal_Area";
   const wkt = `PROJCS["${name}",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",${WGS84.semiMajor},${WGS84.inverseFlattening}]],PRIMEM["Greenwich",0],UNIT["Degree",0.0174532925199433]],PROJECTION["${method}"],${Object.entries(parameters).map(([key, value]) => `PARAMETER["${names[key]}",${value}]`).join(",")},UNIT["Meter",1]]`;
   return Object.freeze({ kind, ...parameters, wkt });
