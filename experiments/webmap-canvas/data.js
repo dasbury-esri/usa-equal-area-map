@@ -52,10 +52,12 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
   return function download(layer, fields) {
     if (downloads.has(layer)) return downloads.get(layer);
     const result = (async () => {
+      const startedMs = performance.now();
       const query = layer.createQuery();
       query.where = layer.definitionExpression || query.where || "1=1";
       if (geometry) { query.geometry = geometry; query.spatialRelationship = "intersects"; }
       const count = await layer.queryFeatureCount(query);
+      const countedMs = performance.now();
       if (!Number.isSafeInteger(count) || count < 0) throw new Error("Invalid feature count");
       if (count > maxFeatures) throw new Error(`Feature budget exceeded: ${count} > ${maxFeatures}; geometry not downloaded`);
       const features = [];
@@ -99,7 +101,10 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
         }
         if (features.length === count && page.exceededTransferLimit) throw new Error("Count changed or transfer limit unresolved");
       }
-      return { features, vertices, pages, count, outFields: query.outFields, generalization };
+      const finishedMs = performance.now();
+      return { features, vertices, pages, count, outFields: query.outFields, generalization,
+        downloadTimings: { startedMs, countMs: countedMs - startedMs, geometryMs: finishedMs - countedMs,
+          totalMs: finishedMs - startedMs } };
     })();
     downloads.set(layer, result);
     return result;
@@ -107,19 +112,17 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
 }
 
 export async function loadFeatures(layers, report, checkPublicItem, options = {}) {
-  const { executeQueryJSON } = await import("@arcgis/core/rest/query.js");
-  const download = createDownloader({ ...options, queryFeatures: (layer, query) => {
+  const executeQueryJSON = options.queryFeatures ? null : (await import("@arcgis/core/rest/query.js")).executeQueryJSON;
+  const download = createDownloader({ ...options, queryFeatures: options.queryFeatures ?? ((layer, query) => {
     const url = new URL(layer.url);
     if (!/\/\d+\/?$/.test(url.pathname)) url.pathname = `${url.pathname.replace(/\/$/, "")}/${layer.layerId}`;
     return executeQueryJSON(url.href, query);
-  } });
-  const datasets = [];
-  let totalVertices = 0;
-  for (const entry of flattenLayers(layers)) {
+  }) });
+  const completed = await Promise.all(flattenLayers(layers).map(async entry => {
     const { layer } = entry;
     const title = layer.title || layer.id;
-    if (layer.type !== "feature") { report(title, `Skipped unsupported layer type: ${layer.type}`); continue; }
-    if (!entry.visible) { report(title, "Skipped invisible layer"); continue; }
+    if (layer.type !== "feature") { report(title, `Skipped unsupported layer type: ${layer.type}`); return null; }
+    if (!entry.visible) { report(title, "Skipped invisible layer"); return null; }
     if (layer.portalItem?.id) await checkPublicItem(layer.portalItem.id);
     try {
       await layer.load();
@@ -128,21 +131,31 @@ export async function loadFeatures(layers, report, checkPublicItem, options = {}
     }
     entry.ranges[entry.ranges.length - 1] = { minScale: layer.minScale, maxScale: layer.maxScale };
     entry.opacity = entry.inheritedOpacity * (layer.opacity ?? 1);
-    if (!entry.ignoreVisibility && layer.visible === false) { report(title, "Skipped invisible loaded layer"); continue; }
+    if (!entry.ignoreVisibility && layer.visible === false) { report(title, "Skipped invisible loaded layer"); return null; }
     try {
       if (layer.featureReduction || layer.effect || layer.featureEffect) throw new Error("Unsupported aggregation or effect");
       if (layer.blendMode && layer.blendMode !== "normal") throw new Error(`Unsupported blend mode: ${layer.blendMode}`);
       const renderer = compileRenderer(layer.renderer);
       const data = await download(layer, renderer.fields);
-      if (totalVertices + data.vertices > MAX_TOTAL_VERTICES) throw new Error("Page vertex budget exceeded; layer discarded");
-      totalVertices += data.vertices;
-      datasets.push({ ...entry, ...data, renderer, id: layer.id, title });
-      report(title, `${data.count} features, ${data.vertices} vertices, ${data.pages} geometry pages`);
+      return { ...entry, ...data, renderer, id: layer.id, title };
     } catch (error) {
       if ([401, 403, 498, 499].includes(error.details?.httpStatus ?? error.details?.raw?.code)
         || /token|credential|unauthoriz|authenticat/i.test(error.message)) throw error;
       report(title, `Rejected: ${error.message}`);
+      return null;
     }
+  }));
+  const datasets = [];
+  let totalVertices = 0;
+  for (const data of completed) {
+    if (!data) continue;
+    if (totalVertices + data.vertices > MAX_TOTAL_VERTICES) {
+      report(data.title, "Rejected: Page vertex budget exceeded; layer discarded");
+      continue;
+    }
+    totalVertices += data.vertices;
+    datasets.push(data);
+    report(data.title, `${data.count} features, ${data.vertices} vertices, ${data.pages} geometry pages`);
   }
   return datasets;
 }

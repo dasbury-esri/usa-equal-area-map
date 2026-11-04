@@ -177,7 +177,8 @@ try {
             return sum + gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE);
           }, 0),
           uploadBytes: window.webmapCanvas.renderer.layers.reduce((sum, layer) => sum + layer.bytes, 0),
-          vertices: window.webmapCanvas.datasets.map(data => ({ item: data.layer.portalItem.id, count: data.count, vertices: data.vertices, pages: data.pages })) } : null }), kind);
+          vertices: window.webmapCanvas.datasets.map(data => ({ item: data.layer.portalItem.id, count: data.count, vertices: data.vertices, pages: data.pages,
+            downloadTimings: data.downloadTimings })) } : null }), kind);
       const load = { kind, cache, ...timing, network: network.snapshot() };
       if (kind === "prototype") {
         assert.deepEqual(load.renderer.gpuCalls, { getBufferSubData: 0, copyBufferSubData: 0 });

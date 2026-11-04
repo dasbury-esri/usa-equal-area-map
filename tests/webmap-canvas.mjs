@@ -5,7 +5,7 @@ import { projectChunkBounds, projectionParameters } from "../experiments/webmap-
 import { projections } from "../src/projections.js";
 import test from "node:test";
 import { parseOptions, resolveSwipe } from "../experiments/webmap-canvas/config.js";
-import { createDownloader, flattenLayers, quantizationParameters, visibleAtScale } from "../experiments/webmap-canvas/data.js";
+import { createDownloader, flattenLayers, loadFeatures, quantizationParameters, visibleAtScale } from "../experiments/webmap-canvas/data.js";
 import { compileRenderer } from "../experiments/webmap-canvas/renderers.js";
 import { continuousPath, densifyPath, polygonParts, prepareGeometry, triangulate, visibleRanges } from "../experiments/webmap-canvas/geometry.js";
 import { generalizationForScale, needsRefresh, queryFootprint, splitBounds } from "../experiments/webmap-canvas/coverage.js";
@@ -68,6 +68,35 @@ test("budgets refuse before geometry and stop vertex overflow", async () => {
   assert.equal(layer.calls.length, 0);
   await assert.rejects(createDownloader({ maxVertices: 1 })(layer, []), /entire layer discarded/);
   assert.equal(layer.calls.length, 1);
+});
+
+test("layer counts and geometry overlap while order and aggregate admission remain deterministic", { timeout: 2000 }, async () => {
+  const counts = [], pending = [], reports = [];
+  const countGate = Promise.withResolvers(), geometryReady = Promise.withResolvers();
+  const layers = ["first", "second", "third"].map(id => ({ ...fakeLayer(1), id, title: id,
+    renderer: { type: "simple", symbol: marker }, load: async () => {},
+    queryFeatureCount: async () => {
+      counts.push(id);
+      if (counts.length === 3) countGate.resolve();
+      await countGate.promise;
+      return 1;
+    } }));
+  const loading = loadFeatures(layers, (title, reason) => reports.push({ title, reason }), async () => {}, {
+    queryFeatures: layer => {
+      const deferred = Promise.withResolvers();
+      pending.push({ layer, deferred });
+      if (pending.length === 3) geometryReady.resolve();
+      return deferred.promise;
+    },
+  });
+  await geometryReady.promise;
+  assert.deepEqual(counts, ["first", "second", "third"]);
+  for (const { layer, deferred } of pending.reverse()) deferred.resolve({ features: [{ attributes: { OID: 1 },
+    geometry: { type: "polygon", rings: [{ length: layer.id === "third" ? 10 : 3000001 }] } }] });
+  const datasets = await loading;
+  assert.deepEqual(datasets.map(data => data.id), ["first", "third"]);
+  assert.ok(reports.some(report => report.title === "second" && /vertex budget/.test(report.reason)));
+  assert.ok(datasets.every(data => data.downloadTimings.totalMs >= data.downloadTimings.countMs));
 });
 
 test("buffered pane footprint splits the dateline and filters every query", async () => {
