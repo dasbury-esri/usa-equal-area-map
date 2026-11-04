@@ -14,9 +14,11 @@ export default defineConfig({
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         drawer: fileURLToPath(new URL("./drawer.html", import.meta.url)),
         webmapCanvas: fileURLToPath(new URL("./experiments/webmap-canvas/index.html", import.meta.url)),
+        webmapCanvasFour: fileURLToPath(new URL("./experiments/webmap-canvas/four.html", import.meta.url)),
       },
       output: {
         manualChunks: {
+          "arcgis-shared": ["@arcgis/core/Map.js", "@arcgis/core/layers/FeatureLayer.js"],
           "date-time": ["luxon"],
           "html-sanitizer": ["@esri/arcgis-html-sanitizer"],
         },

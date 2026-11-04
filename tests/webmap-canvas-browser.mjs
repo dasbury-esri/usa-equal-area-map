@@ -4,20 +4,24 @@ import { chromium } from "playwright";
 export const itemIds = ["42430a34a2b44c0da678ce60ce20dd31", "bbda2d6bc77c495ab382e313f02888f1", "6100fd30484645e6b3ec7006d95aa7b8"];
 export const base = process.env.TEST_URL ?? "http://127.0.0.1:5173/usa-equal-area-map/";
 
-export async function comparisonStyles(page) {
+export function applyComparisonStyle(json, index) {
   const colors = [[230, 235, 231, 255], [202, 221, 211, 255], [255, 255, 255, 0]];
   const outlines = [[150, 161, 158, 255], [59, 104, 92, 255], [160, 80, 65, 255]];
+  for (const layer of json.layers ?? []) {
+    layer.blendMode = "normal";
+    layer.effect = null;
+    layer.featureEffect = null;
+    layer.layerDefinition.drawingInfo.renderer = { type: "simple", symbol: { type: "esriSFS", style: "esriSFSSolid",
+      color: colors[index], outline: { type: "esriSLS", style: "esriSLSSolid", color: outlines[index], width: 0.5 } } };
+  }
+  return json;
+}
+
+export async function comparisonStyles(page) {
   for (const [index, id] of itemIds.entries()) {
     await page.route(`**/sharing/rest/content/items/${id}/data*`, async route => {
       const response = await route.fetch();
-      const json = await response.json();
-      for (const layer of json.layers ?? []) {
-        layer.blendMode = "normal";
-        layer.effect = null;
-        layer.featureEffect = null;
-        layer.layerDefinition.drawingInfo.renderer = { type: "simple", symbol: { type: "esriSFS", style: "esriSFSSolid",
-          color: colors[index], outline: { type: "esriSLS", style: "esriSLSSolid", color: outlines[index], width: 0.5 } } };
-      }
+      const json = applyComparisonStyle(await response.json(), index);
       await route.fulfill({ response, json });
     });
   }

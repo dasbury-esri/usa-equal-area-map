@@ -48,6 +48,13 @@ failure for the DC district; source data is not edited.
 Step 5 adds synchronized A/B scissor clipping and accessible draggable dividers.
 Headless four-pane pixel, keyboard and pointer tests pass with one context and
 unchanged centers. Native comparison, performance and public tile research remain.
+Step 6 captures both applications natively at both sizes/projections and records
+cold/warm headless measurements. The numerical projection test passes, but
+visual fidelity does not: broken subpixel outlines and a far-field polygon
+artifact remain. Pan cadence is about 117ms versus 16.7ms for MapViews. The
+four-iframe comparison harness is unresolved; the owner approved recording that
+limitation and continuing. All 649 build budgets and built-entry smoke checks
+pass. This is an unpublished investigation, not an accepted replacement.
 
 ## Local Development
 

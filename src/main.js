@@ -19,6 +19,9 @@ import viewDefaults from "./view-defaults.js";
 import "./style.css";
 
 const urlParams = new URLSearchParams(window.location.search);
+const comparisonItems = import.meta.env.DEV && Array.isArray(window.__webmapCanvasComparisonItems)
+  && window.__webmapCanvasComparisonItems.every(id => /^[a-f0-9]{32}$/i.test(id))
+  ? window.__webmapCanvasComparisonItems : null;
 const globeTrial = urlParams.get("overview") === "globes";
 const albersProj = urlParams.get("projection") === "albers";
 const framingPreview = true;
@@ -490,15 +493,17 @@ const App =  () => {
     // If no parameters are specified in the url, display the default map
     var layer = defaultLayer;
     var layerMap = new Map({
-      layers: [oceanLayer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer, airportGrounds, airportRunways]
+      layers: comparisonItems ? comparisonItems.map(id => new FeatureLayer({ portalItem: { id }, popupEnabled: false }))
+        : [oceanLayer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer, airportGrounds, airportRunways]
     });
     let overviewMap = null;
     if (!globeTrial && document.getElementById("akViewDiv")) {
       overviewMap = new Map({
-        layers: [oceanLayer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer]
+        layers: (comparisonItems ? layerMap.layers.toArray()
+          : [oceanLayer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer])
           .map(source => source.clone()),
       });
-      overviewMap.addMany([
+      if (!comparisonItems) overviewMap.addMany([
         new FeatureLayer({ id: "latlongLayer", portalItem: { id: "278e3884c50649baba4910a6d7b39922" }, popupEnabled: false }),
         new FeatureLayer({ id: "latlong180Layer", portalItem: { id: "3d47090c1ecc4fb1a84458cbc0274888" }, popupEnabled: false }),
       ], 1);

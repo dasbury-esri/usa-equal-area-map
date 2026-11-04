@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Four Equal Area Web Maps</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; }
+    main { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; width: 100%; height: 100%; }
+    iframe { width: 100%; height: 100%; min-width: 0; min-height: 0; border: 0; }
+  </style>
+</head>
+<body>
+  <main></main>
+  <script type="module">
+    const params = new URLSearchParams(location.search);
+    if (!params.has("webmap") && !params.has("layers")) params.set("layers", "bbda2d6bc77c495ab382e313f02888f1");
+    for (let index = 0; index < 4; index++) {
+      const frame = document.createElement("iframe");
+      frame.title = `Equal area map ${index + 1}`;
+      frame.src = `./index.html?${params}`;
+      document.querySelector("main").append(frame);
+    }
+  </script>
+</body>
+</html>

@@ -50,11 +50,12 @@ console.log("PASS: patched matcher consumers, real lint rules, native SSR fetch 
 
 if (process.argv.includes("--build")) {
   const assets = new URL("../dist/assets/", import.meta.url);
-  const budgets = { main: 1450000, ProjectionTransformation: 1250000,
+  const budgets = { "arcgis-shared": 1450000, ProjectionTransformation: 1250000,
     VideoController: 750000, geometryEngineBase: 650000 };
   const files = readdirSync(assets).filter(name => name.endsWith(".js"));
   assert.ok(files.some(name => name.startsWith("date-time-")));
   assert.ok(files.some(name => name.startsWith("html-sanitizer-")));
+  assert.ok(files.some(name => name.startsWith("arcgis-shared-")));
   for (const name of files) {
     const category = Object.keys(budgets).find(prefix => name.startsWith(`${prefix}-`));
     const limit = budgets[category] ?? 500000;

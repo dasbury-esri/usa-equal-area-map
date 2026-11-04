@@ -82,7 +82,7 @@ services provide no vertex count. See the public
 
 ### Remaining Steps
 
-Native comparison, performance and tile discovery results are pending.
+Tile discovery results are pending. Native comparison found acceptance gaps.
 No final prototype acceptance or performance improvement is claimed.
 
 ## Step 3: Data Contract and Results
@@ -188,3 +188,103 @@ a divider does not pan the map. Four-pane two-color pixel assertions verify
 both sides and both endpoints; pointer/keyboard synchronization, unchanged
 centers and 1/1 live/created contexts pass headlessly. Nine unit tests pass.
 Screenshot: `/tmp/usa-map-swipe.png`. Native comparison remains Step 6.
+
+## Step 6: Comparison and Acceptance Gaps
+
+The main app has a dev-only pre-startup fixture hook; production ignores it.
+Tests select exactly the three supplied items in main and drawer before requests
+start. Both apps receive the same intercepted simple styles, not portal edits.
+The main application retains its seven visible MapViews (including overview,
+Guam and Samoa); the prototype has four panes. This is an application-level
+comparison, not identical workloads or identical viewport rectangles.
+
+One native Chrome batch captured both apps, both projections and both requested
+sizes, at 1:24,000,000. All selected pane centers match within 0.000001m and
+scales match exactly. Layout translations and the main view extending behind its
+drawer prevent direct whole-image pixel alignment. World/US positive-longitude
+Aleutians are retained on the western end of the continuous Alaska chain;
+districts still omit them. The prototype's solid outlines are visibly broken at
+subpixel widths, and the 2560x1600 Albers Alaska view includes a spurious
+far-field polygon near its bottom edge. These are failed visual-fidelity checks,
+not accepted approximations. Projection accuracy alone does not certify polygon
+tessellation, clipping or stroke coverage.
+
+Native transform-feedback accuracy is at most 5.020m / 0.01898 device pixels at
+1:1,000,000 and the observed DPR 1. The earlier headless DPR 2 result is at most
+0.03795 device pixels. Native screenshots and numeric states are in
+`/var/folders/3v/c9dzmzpn5t9_sw5dhskjk6t40000gq/T/usa-map-comparison-XIk8Au/`.
+
+### Performance Method
+
+Headless Chrome, 1920x1080, DPR 1, Lambert, 1:24,000,000, canonical Vite dev
+origin. Cold clears browser HTTP cache; warm navigates again in the same browser.
+CDP response-stage interception supplies item-data styles without Playwright
+routing's cache disabling. Request counts include dev modules, metadata, counts,
+geometry and SDK assets; bytes use CDP encodedDataLength, not cross-origin
+ResourceTiming zeros. Intercepted item-data bodies/cache accounting are a fixture
+caveat. Browser cache is the controlled variable, not CDN/server-side cache.
+
+First complete is elapsed navigation time after all tested views are ready,
+stationary and not updating, including drawer opening and center/scale setup in
+main; prototype waits for its complete upload/draw. Pan uses a five-second RAF
+loop moving CONUS two CSS pixels per callback; statistics are RAF intervals, not
+CPU submission times or measured GPU-present timestamps. Samples are single runs,
+not a statistically controlled benchmark. Different achieved frame counts imply
+different total travel distances. Main measurements preceded the isolated
+prototype rerun, so external service variability is not controlled.
+
+| App / cache | Complete ms | Bytes | Requests | Query requests | Live contexts | RAF median / p95 ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| Main cold | 8161.5 | 16076566 | 1789 | 218 | 7 | 16.7 / 16.7 |
+| Main warm | 2800.2 | 60053 | 1789 | 218 | 7 | 16.7 / 16.7 |
+| Prototype cold | 6202.9 | 29972658 | 552 | 7 | 1 | 116.6 / 133.4 |
+| Prototype warm | 6180.5 | 17504414 | 551 | 7 | 1 | 116.6 / 116.7 |
+
+Prototype geometry still uses four pages plus three count queries, shared across
+panes. Upload size is 185,831,736 bytes. Warm reload reconstructs meshes; pan does
+not re-download them. Cold cache hits within a load can arise from cross-frame
+reuse. Main created nine contexts cumulatively, seven remaining live. Prototype
+created/retained one. Initial fixture runs also encountered an unrecorded
+two-layer outcome and a 50.1-second full load; no stable speedup is claimed.
+Headless cold failures included an unrelated favicon 404; native main also
+recorded three aborted widget-translation requests during lifecycle changes.
+
+### Four Iframes
+
+`experiments/webmap-canvas/four.html` loads four independent prototypes, each
+with four panes. An ordinary headless US/outlying-only check, without fixture
+interception, initialized all four with 1/1 live/created contexts each and no
+page/network errors. Summed live contexts: four. That probe did not retain a
+precise first-complete time.
+
+The heavy three-layer comparison remains **unresolved**: one CDP run reached
+four contexts and four incomplete two-layer renders at 66.46s; another timed
+out at 300s. Smaller/full routed runs initialized only two iframes, while the
+other two never exposed application state. Switching CDP to Playwright routing
+did not resolve it. The last full routed run had two complete three-layer
+iframes at 10.74/11.10s but timed out at 120s overall. Therefore there is no
+accepted full-fixture four-iframe load time or heavy-fixture context acceptance.
+The owner explicitly approved recording this limitation rather than continuing
+the harness investigation. Do not interpret it as proven application incapacity
+or a proven interception root cause.
+
+### Build and Decision
+
+Build and all 649 chunk budgets pass, with focused lint and nine unit tests.
+Adding the second app moved common SDK modules into a heuristically named
+`projections` chunk, failing the default 500KB gate. A stable `arcgis-shared`
+manual chunk now owns the unchanged 1,450,000-byte SDK allowance (actual
+905,931 bytes); the main entry returns to the 500KB default. Other ceilings are
+unchanged. Built main and supported-layer prototype smoke checks pass using
+actual dist bytes intercepted at the canonical origin, without a second server.
+
+Keep this ADR provisional and the branch unpublished. The context reduction is
+real on tested pages, but fidelity, pan throughput, far-field clipping, the heavy
+iframe harness and a real owner WebMap remain acceptance gaps. No CPU projection
+fallback is indicated by numerical evidence. Geometry culling/batching and
+stroke/clipping correctness need separate follow-up, not a performance claim.
+
+Artifacts: main headless `usa-map-comparison-3Yojhm`, prototype headless
+`usa-map-comparison-L26bDQ` under the same temporary parent as native captures;
+`/tmp/usa-map-comparison.log`, `/tmp/usa-map-comparison-prototype-final.log`,
+`/tmp/usa-map-four-fixed.log`, `/tmp/usa-map-prototype-build.log`.
