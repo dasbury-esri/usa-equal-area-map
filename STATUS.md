@@ -63,6 +63,15 @@ For publication, run one final regression rather than repeatedly testing the
 same candidate. Do not rerun full dev and built rendering matrices merely for
 reassurance. This scope follows the owner's feedback in session 0009.
 
+## Globe Scale Bar Release
+
+Owner-authorized for publication in [session 0013](session-logs/2026-11-03-0013-session-log.md):
+removed the globe-layout `bottom: 76px`
+override that raised the CNMI/Guam, American Samoa and Hawaii scale bars.
+Visible bars now use the normal 5px lower-left inset. Focused Lambert/Albers
+checks passed at two sizes and three scales without globe overlap; compact-pane
+hiding is unchanged. See [session 0012](session-logs/2026-11-03-0012-session-log.md).
+
 ## View Retention Release
 
 Published with owner approval in [session 0011](session-logs/2026-11-03-0011-session-log.md):

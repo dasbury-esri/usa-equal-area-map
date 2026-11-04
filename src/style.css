@@ -93,10 +93,6 @@
   max-width: calc(100% - 4px);
 }
 
-.globe-trial #insetContainer .esri-ui-bottom-left {
-  bottom: 76px;
-}
-
 .globe-trial .compact-inset .esri-scale-bar {
   display: none;
 }

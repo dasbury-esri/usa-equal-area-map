@@ -5,10 +5,11 @@ import { join } from "node:path";
 import { launchNativeBrowser } from "./native-browser.mjs";
 
 const base = process.env.TEST_URL ?? "http://127.0.0.1:5173/usa-equal-area-map/";
+const focusGlobes = process.env.SCALE_BAR_FOCUS === "globes";
 const capture = process.env.CAPTURE_SCALE_BASELINE;
 const baseline = process.env.SCALE_BASELINE
   ? JSON.parse(readFileSync(process.env.SCALE_BASELINE, "utf8")) : null;
-const sizes = [[1280, 720], [1920, 1080], [2560, 1440], [1280, 800], [1920, 1200],
+const sizes = focusGlobes ? [[1280, 800], [1920, 1080]] : [[1280, 720], [1920, 1080], [2560, 1440], [1280, 800], [1920, 1200],
   [2560, 1600], [2520, 1080], [3360, 1440], [2560, 1080], [3440, 1440]];
 const artifacts = mkdtempSync(join(tmpdir(), "usa-map-scale-bars-"));
 const samples = {};
@@ -54,6 +55,7 @@ async function measure(page) {
 
 try {
   for (const query of ["", "?projection=albers", "?overview=globes", "?projection=albers&overview=globes"]) {
+    if (focusGlobes && !query.includes("globes")) continue;
     const page = await browser.context.newPage();
     const errors = [];
     const deprecations = [];
@@ -98,6 +100,10 @@ try {
           assert.equal(bar.hidden, query.includes("globes") && bar.compact);
           if (!bar.hidden) {
             assert.ok(bar.fits && bar.globeClear, `${key}/${bar.id}: bounds or globe overlap`);
+            if (query.includes("globes") && ["guViewDiv", "asViewDiv", "hiViewDiv"].includes(bar.id)) {
+              assert.ok(bar.left >= 0 && bar.left <= 6 && bar.bottom >= 0 && bar.bottom <= 6,
+                `${key}/${bar.id}: lower-left anchoring ${JSON.stringify({ left: bar.left, bottom: bar.bottom })}`);
+            }
             for (const line of bar.lines) assert.ok(Math.abs(line.width - line.calculated) < 1);
           }
           if (bar.id === "overViewDiv") assert.equal(bar.scale, overviewScale);
@@ -120,7 +126,7 @@ try {
       await page.screenshot({ path: join(artifacts, `${query.replaceAll(/[?=&]/g, "-") || "default"}-${width}x${height}.png`) });
       console.log(`PASS ${query || "default"} ${width}x${height}: all bars at three scales`);
     }
-    if (!capture) {
+    if (!capture && !focusGlobes) {
       await page.evaluate(() => {
         const child = document.querySelector("#drawer-iframe").contentWindow;
         window.previousScaleBars = [window.mainView, window.prView, ...child.drawerLifecycle.views]
