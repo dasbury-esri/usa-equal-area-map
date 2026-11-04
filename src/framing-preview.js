@@ -23,6 +23,19 @@ function setCenter(view, center) {
   view.container.ownerDocument.defaultView.framingPreviewCenters?.set(view, view.center.clone());
 }
 
+function setZoomHome(view, center, scale) {
+  const states = view.container.ownerDocument.defaultView.zoomAnchorStates;
+  if (!states) return;
+  const state = states.get(view) ?? { manualCenter: null, panning: false };
+  if (center) {
+    state.homeCenter = new view.center.constructor({ x: center.x, y: center.y, spatialReference: view.spatialReference });
+    state.manualCenter = null;
+    state.panning = false;
+  }
+  state.homeScale = scale;
+  states.set(view, state);
+}
+
 export async function connectFramingPreview(mainView, restored = false) {
   const frame = document.getElementById("drawer-iframe");
   const drawer = document.getElementById("drawer-container");
@@ -34,6 +47,8 @@ export async function connectFramingPreview(mainView, restored = false) {
     const mainFit = fit(bounds.conus, mainView);
     const isOpen = drawer.classList.contains("drawer-open");
     if (!isOpen) {
+      setZoomHome(mainView, mainFit, mainFit.scale);
+      if (window.prView?.ready) setZoomHome(window.prView, null, mainFit.scale);
       mainView.scale = mainFit.scale;
       setCenter(mainView, mainFit);
       return;
@@ -48,10 +63,18 @@ export async function connectFramingPreview(mainView, restored = false) {
       alaskaHeight: alaskaView.height,
     }, bounds);
     const sharedScale = placement.resolution * alaskaView.scale / alaskaView.resolution;
+    const insets = [window.prView, ...frame.contentWindow.drawerLifecycle.views]
+      .filter(view => view?.ready && view.container.id !== "overViewDiv");
+    setZoomHome(mainView, placement.main, sharedScale);
+    for (const view of insets) setZoomHome(view, view === alaskaView ? placement.alaska : null, sharedScale);
     alaskaView.scale = sharedScale;
     mainView.scale = isOpen ? sharedScale : mainFit.scale;
     setCenter(alaskaView, placement.alaska);
     setCenter(mainView, isOpen ? placement.main : mainFit);
+    for (const view of insets) {
+      const state = view.container.ownerDocument.defaultView.zoomAnchorStates?.get(view);
+      if (state && !state.manualCenter) view.center = state.homeCenter.clone();
+    }
     const overview = Array.from(alaskaView.constructor.views)
       .find(view => view.container.id === "overViewDiv");
     if (overview?.ready && overview.width > 0 && overview.height > 0 && overview.resolution > 0) {

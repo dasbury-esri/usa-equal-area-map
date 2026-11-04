@@ -22,6 +22,7 @@ const globeTrial = urlParams.get("overview") === "globes";
 const albersProj = urlParams.get("projection") === "albers";
 const framingPreview = true;
 if (framingPreview) window.framingPreviewCenters = new WeakMap();
+window.zoomAnchorStates = new WeakMap();
 if (globeTrial) document.body.classList.add("globe-trial");
 if (albersProj) document.body.classList.add("albers-view");
 if (globeTrial || albersProj || framingPreview) {
@@ -154,32 +155,35 @@ function connectPrExtent(view, isMainPage) {
 }
 
 function connectZoomAnchor(view, defaults) {
-  let manualCenter = null;
-  let panning = false;
   const regionalCenter = projectOperator.execute(new Point({
     ...defaults.center,
     spatialReference: defaults.center.spatialReference ?? view.spatialReference,
   }), view.spatialReference);
-  if (framingPreview) {
-    return () => (window.framingPreviewCenters.get(view) ?? regionalCenter).clone();
-  }
+  const host = document.getElementById("mainViewDiv") ? window : window.parent;
+  const state = window.zoomAnchorStates.get(view) ?? {
+    homeCenter: regionalCenter,
+    homeScale: host.zoomAnchorStates?.get(host.mainView)?.homeScale ?? defaults.scale,
+    manualCenter: null,
+    panning: false,
+  };
+  window.zoomAnchorStates.set(view, state);
   const anchor = projectOperator.execute(new Point({
     ...defaults.zoomAnchor,
     spatialReference: { wkid: 4326 },
   }), view.spatialReference);
   const centerAtScale = () => {
     const progress = Math.max(0, Math.min(1,
-      (defaults.scale - view.scale) / (defaults.scale - viewDefaults.zoomAnchorScale)
+      (state.homeScale - view.scale) / Math.max(1, state.homeScale - viewDefaults.zoomAnchorScale)
     ));
     return new Point({
-      x: regionalCenter.x + (anchor.x - regionalCenter.x) * progress,
-      y: regionalCenter.y + (anchor.y - regionalCenter.y) * progress,
+      x: state.homeCenter.x + (anchor.x - state.homeCenter.x) * progress,
+      y: state.homeCenter.y + (anchor.y - state.homeCenter.y) * progress,
       spatialReference: view.spatialReference,
     });
   };
   const startManualPan = () => {
-    panning = true;
-    manualCenter = view.center.clone();
+    state.panning = true;
+    state.manualCenter = view.center.clone();
   };
   view.addHandles([
     view.on("drag", (event) => {
@@ -190,27 +194,27 @@ function connectZoomAnchor(view, defaults) {
         startManualPan();
       }
     }),
-    view.on("mouse-wheel", () => { panning = false; }),
+    view.on("mouse-wheel", () => { state.panning = false; }),
     reactiveUtils.watch(() => view.center, () => {
-      if (panning) manualCenter = view.center.clone();
+      if (state.panning) state.manualCenter = view.center.clone();
     }, { sync: true }),
     reactiveUtils.watch(() => view.stationary, (stationary) => {
-      if (stationary && panning) {
-        manualCenter = view.center.clone();
-        panning = false;
+      if (stationary && state.panning) {
+        state.manualCenter = view.center.clone();
+        state.panning = false;
       }
     }, { sync: true }),
   ]);
   view.addHandles(reactiveUtils.watch(() => view.scale, () => {
-    panning = false;
-    const center = manualCenter ?? centerAtScale();
+    state.panning = false;
+    const center = state.manualCenter ?? centerAtScale();
     if (Math.hypot(view.center.x - center.x, view.center.y - center.y) > 1e-6) {
       view.center = center;
     }
-  }, { sync: true }));
+  }, { sync: true, initial: true }));
   return () => {
-    manualCenter = null;
-    panning = false;
+    state.manualCenter = null;
+    state.panning = false;
     return centerAtScale();
   };
 }

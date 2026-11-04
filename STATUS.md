@@ -16,6 +16,17 @@ extra:
 
 # USA Equal Area Map
 
+## Unpublished Airport Recentering Fix
+
+Local branch `fix/airport-zoom-recentering` starts directly from main and contains
+only the airport-recentering source repair, focused tests and supporting records.
+It restores fitted-home-to-airport interpolation while preserving manual pans,
+lazy panes and view recovery. No basemap experiment or dependency changes are
+included. Eight native browser cases and all 578 production chunk budgets pass.
+No push, merge or deployment is authorized. See
+[session 0024](session-logs/2026-11-04-0024-session-log.md) and [AGENTS.md](AGENTS.md).
+The owner's next_action is unchanged.
+
 ## Local Development
 
 Use one repository-backed dev instance at
