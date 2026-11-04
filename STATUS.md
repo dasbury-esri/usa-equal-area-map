@@ -34,9 +34,9 @@ restart `npm run dev`, and reload every open local tab. A clean install removes
 the optimizer cache; old browser modules can otherwise keep requesting deleted
 hashed chunks. Do not exclude the ArcGIS SDK merely because stale URLs fail.
 
-## Local Tooling Warning Fixes
+## Published Tooling Warning Fixes
 
-Not yet published: explicit install-script decisions allow only esbuild 0.25.3
+Published in session 0011: explicit install-script decisions allow only esbuild 0.25.3
 and deny Vaadin/fsevents scripts. A clean install reports no unreviewed scripts
 and zero vulnerabilities. The build separates date/sanitizer libraries, reducing
 the shared main chunk from 1.508 MB to 1.414 MB. A measured 1.45 MB SDK warning
@@ -48,9 +48,9 @@ Builds and budget checks pass on Node 22/26. Both built-output and refreshed-dev
 native suites pass eight cases and 40 tab switches each. The stale local tabs
 were reloaded; current loader chunks return HTTP 200. Only the canonical dev
 server remains running. See [session 0008](session-logs/2026-11-03-0008-session-log.md).
-The published runtime below is unchanged. These changes are included in the
-owner-requested commit/push with `[skip ci]`, not a new deployment; see
-[session 0009](session-logs/2026-11-03-0009-session-log.md).
+These changes were initially committed with `[skip ci]` without deployment in
+[session 0009](session-logs/2026-11-03-0009-session-log.md). They are now published
+with the view-retention release in session 0011.
 
 ## Verification Scope
 
@@ -65,7 +65,7 @@ reassurance. This scope follows the owner's feedback in session 0009.
 
 ## View Retention Release
 
-Owner-authorized for publication in [session 0011](session-logs/2026-11-03-0011-session-log.md):
+Published with owner approval in [session 0011](session-logs/2026-11-03-0011-session-log.md):
 ordinary tab visibility changes and drawer
 closure no longer destroy map views. Drawers still create their views lazily
 on first open, then retain them. Only a trusted `webglcontextlost` event on a
@@ -85,15 +85,17 @@ for per-switch evidence, the repaired synthetic-event fixture and test limits.
 
 This behavior supersedes the destroy-on-hidden/close policy below. The final
 publication regression passed eight projection/layout/viewport cases and 40
-two-tab stress switches. Deployment verification is pending the authorized push.
+two-tab stress switches. Pages deployment succeeded, and 28 live entry points,
+key JavaScript bundles and styles matched the verified build byte-for-byte.
 
-## Published Performance Changes
+## Earlier Performance Changes
 
-Published: Canvas 2D locator globes replace Three.js; globe layouts
-skip overview creation. Drawer and PR views are created on first open and
-destroyed on close. Hidden tabs destroy all views and restore navigation on
-return, retaining maps/layers. Console diagnostics report live document/iframe
-WebGL contexts; destroyed render contexts are explicitly released.
+Canvas 2D locator globes replace Three.js; globe layouts skip overview creation.
+The earlier release created drawer/PR views on first open, destroyed them on
+close, and destroyed hidden tabs' views before restoring navigation on return.
+Session 0011 supersedes that destruction policy with retained views and actual-
+loss-only recovery. Console diagnostics still report live document/iframe WebGL
+contexts; contexts from genuinely destroyed views are explicitly released.
 
 Unsupported `sharedViews` options are removed. Regional maps omit graticules;
 only the standard overview owns them and its separate retained layer clones.
@@ -133,18 +135,21 @@ see [session 0007](session-logs/2026-11-03-0007-session-log.md) for the release 
 
 ## Published Release
 
-- Runtime commit: `daf05e7eebd9abc67475fdb339bf10eda8b921f5`.
-- Pages deployment `7535560324` succeeded at
-  2026-11-03 17:43:32-08:00[America/Los_Angeles] in
-  [run 41755828793](https://github.com/dasbury-esri/usa-equal-area-map/actions/runs/41755828793).
+- Runtime commit: `1d0211d1fab4c7afe744320c76578f4769946850`.
+- Pages deployment `7537579534` succeeded at
+  2026-11-03 20:03:55-08:00[America/Los_Angeles] in
+  [run 41770740289](https://github.com/dasbury-esri/usa-equal-area-map/actions/runs/41770740289).
 - [Production](https://dasbury-esri.github.io/usa-equal-area-map/) and
   [Albers](https://dasbury-esri.github.io/usa-equal-area-map/?projection=albers)
   now use responsive framing without an opt-in parameter.
-- Public default/Albers/standard/globe smoke checks passed at 1920x1080 and
-  2560x1600, including loaded layers, scale linking, view lifecycle, globe pixels
-  and 40 tab switches. Both HTML entry points match the verified build byte-for-byte.
-  An initial readiness timeout did not recur in the unchanged full rerun; its
-  cause remains unconfirmed. See session 0007 for evidence and limitations.
+- Final default/Albers/standard/globe regression checks passed at 1920x1080 and
+  2560x1600, including loaded layers, scale linking, retained views, globe pixels
+  and 40 stress switches. The earlier focused test also passed 30 two-/three-tab
+  switches with zero new layer queries and three actual-loss recovery cases.
+- Both live HTML entry points and 26 selected JavaScript/style assets match the
+  tested build byte-for-byte. The browser matrix was not repeated after publication.
+  See [session 0011](session-logs/2026-11-03-0011-session-log.md) for verification;
+  session 0007 retains the previous release's historical results and limitations.
 
 ## Current state
 
