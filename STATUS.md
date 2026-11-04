@@ -95,7 +95,9 @@ service caching remains unobservable. Geometry buffers are 32.81MB standalone
 or 23.72MB per smaller embed, with all three layers and one context each.
 Known fidelity defects remain. Work uses the isolated `usa-equal-area-map-canvas`
 Git worktree to avoid the other agent's checkout; its production preview remains
-on port 5175. These four measured commits are not pushed or deployed.
+on port 5175. The owner subsequently authorized pushing these four measured
+commits and a `[skip ci]` session closeout to the prototype branch only.
+No merge or deployment is authorized by that closeout.
 
 ## Local Development
 

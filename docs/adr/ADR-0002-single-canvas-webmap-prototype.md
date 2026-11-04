@@ -405,5 +405,6 @@ warm responses are browser-cache hits. Internal service/database caching cannot
 be inferred from these headers or single-sample timings. The session log records
 per-layer TTFB, complete phases, exact requests and the repaired duplicate-byte
 accounting assertion. Known stroke/far-field fidelity defects and a real owner
-WebMap remain acceptance gaps. Keep this ADR provisional; no current push,
-merge, deployment or portal changes are authorized.
+WebMap remain acceptance gaps. Keep this ADR provisional. The owner subsequently
+authorized a `[skip ci]` session closeout and prototype-branch push only;
+merge, deployment and portal changes remain outside that authorization.
