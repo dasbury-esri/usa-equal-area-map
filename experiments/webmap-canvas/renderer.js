@@ -117,6 +117,7 @@ export class CanvasRenderer {
   }
 
   async load(datasets, { isCurrent = () => true } = {}) {
+    const started = performance.now();
     const budget = { vertices: 0, instances: 0 };
     const layers = [];
     for (const dataset of datasets) {
@@ -151,8 +152,11 @@ export class CanvasRenderer {
     this.budget = budget;
     this.swipePair = resolveSwipe(this.layers.map(layer => layer.dataset), this.swipeSelection);
     if (this.swipePair) this.panes.filter(pane => !pane.element.querySelector(".swipe-divider")).forEach(pane => this.bindSwipe(pane));
+    this.loadTimings = { geometryMs: performance.now() - started };
+    const drawStarted = performance.now();
     this.draw();
     await new Promise(resolve => requestAnimationFrame(() => { this.gl.finish(); resolve(); }));
+    this.loadTimings.firstDrawMs = performance.now() - drawStarted;
     return true;
   }
 

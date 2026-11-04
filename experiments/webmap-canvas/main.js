@@ -63,9 +63,8 @@ try {
     state.coverage);
   state.timings.downloadMs = performance.now() - downloadStarted;
   status.textContent = "Preparing geometry";
-  const geometryStarted = performance.now();
   await state.renderer.load(state.datasets);
-  state.timings.geometryMs = performance.now() - geometryStarted;
+  Object.assign(state.timings, state.renderer.loadTimings);
   state.status = "ready";
   state.firstRenderMs = performance.now();
   status.textContent = `${state.renderer.layers.length} feature layers rendered.`;

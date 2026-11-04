@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { arcgisToGeoJSON } from "@terraformer/arcgis";
 import { parseOptions, resolveSwipe } from "../experiments/webmap-canvas/config.js";
-import { createDownloader, flattenLayers, visibleAtScale } from "../experiments/webmap-canvas/data.js";
+import { createDownloader, flattenLayers, quantizationParameters, visibleAtScale } from "../experiments/webmap-canvas/data.js";
 import { compileRenderer } from "../experiments/webmap-canvas/renderers.js";
 import { continuousPath, densifyPath, partitionRings, polygonParts, prepareGeometry, triangulate, visibleRanges } from "../experiments/webmap-canvas/geometry.js";
 import { generalizationForScale, needsRefresh, queryFootprint, splitBounds } from "../experiments/webmap-canvas/coverage.js";
@@ -55,7 +55,8 @@ test("one shared paginated download uses only renderer and system fields", async
   assert.deepEqual(layer.calls[0].outFields, ["CLASS", "OID"]);
   assert.deepEqual(layer.calls[0].outSpatialReference, { wkid: 4326 });
   assert.equal(layer.calls[0].returnGeometry, true);
-  assert.equal(layer.calls[0].maxAllowableOffset, 0.001);
+  assert.equal(layer.calls[0].maxAllowableOffset, null);
+  assert.equal(layer.calls[0].quantizationParameters.tolerance, 0.001);
 });
 
 test("budgets refuse before geometry and stop vertex overflow", async () => {
@@ -102,7 +103,20 @@ test("scale detail refines only beyond threshold or outside cached area", async 
   assert.equal(generalizationForScale(12000000), generalization / 2);
   const layer = fakeLayer();
   await createDownloader({ generalization })(layer, []);
-  assert.equal(layer.calls[0].maxAllowableOffset, generalization);
+  assert.equal(layer.calls[0].quantizationParameters.tolerance, generalization);
+});
+
+test("view quantization bounds cover the footprint and pages decode before use", async () => {
+  const geometry = { rings: [[[-180, 10], [-160, 70]], [[170, 50], [180, 60]]] };
+  assert.deepEqual(quantizationParameters(geometry, 0.02), { mode: "view", originPosition: "upperLeft", tolerance: 0.02,
+    extent: { type: "extent", xmin: -180, ymin: 10, xmax: 180, ymax: 70, spatialReference: { wkid: 4326 } } });
+  assert.throws(() => quantizationParameters(geometry, 0));
+  const layer = fakeLayer(1);
+  const queryFeatures = async () => ({ transform: {}, features: [{ attributes: { OID: 1 }, geometry: { type: "point", x: 20, y: 30 } }],
+    unquantize() { this.features[0].geometry = { type: "point", x: -77, y: 39 }; this.transform = null; } });
+  const data = await createDownloader({ geometry, queryFeatures })(layer, []);
+  assert.equal(data.features[0].geometry.x, -77);
+  await assert.rejects(createDownloader({ queryFeatures: async () => ({ transform: {}, features: [] }) })(layer, []), /SDK decoding/);
 });
 
 test("supported renderer boundaries and explicit refusal", () => {

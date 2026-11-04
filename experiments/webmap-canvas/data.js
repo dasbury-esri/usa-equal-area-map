@@ -8,6 +8,18 @@ export const PAGE_SIZE = 500;
 
 const asArray = collection => collection?.toArray ? collection.toArray() : collection ?? [];
 
+export function quantizationParameters(geometry, tolerance) {
+  if (!Number.isFinite(tolerance) || tolerance <= 0) throw new Error("Invalid quantization tolerance");
+  const extent = { type: "extent", xmin: Infinity, ymin: Infinity, xmax: -Infinity, ymax: -Infinity,
+    spatialReference: { wkid: 4326 } };
+  for (const ring of geometry?.rings ?? [[[-180, -90], [180, 90]]]) for (const [longitude, latitude] of ring) {
+    extent.xmin = Math.min(extent.xmin, longitude); extent.ymin = Math.min(extent.ymin, latitude);
+    extent.xmax = Math.max(extent.xmax, longitude); extent.ymax = Math.max(extent.ymax, latitude);
+  }
+  if (![extent.xmin, extent.ymin, extent.xmax, extent.ymax].every(Number.isFinite)) throw new Error("Invalid quantization extent");
+  return { mode: "view", originPosition: "upperLeft", tolerance, extent };
+}
+
 export function flattenLayers(layers, inherited = { visible: true, opacity: 1, ranges: [] }, ignoreVisibility = false) {
   return asArray(layers).flatMap(layer => {
     const properties = { visible: inherited.visible && (ignoreVisibility || layer.visible !== false),
@@ -61,12 +73,17 @@ export function createDownloader({ maxFeatures = MAX_FEATURES, maxVertices = MAX
       query.returnGeometry = true;
       query.returnZ = false;
       query.returnM = false;
-      query.maxAllowableOffset = generalization;
+      query.maxAllowableOffset = null;
+      query.quantizationParameters = quantizationParameters(geometry, generalization);
       if (pagination) query.orderByFields = [`${objectIdField} ASC`];
       while (features.length < count) {
         if (pagination) { query.start = features.length; query.num = Math.min(pageSize, count - features.length); }
         else query.objectIds = ids.slice(features.length, features.length + pageSize);
         const page = await queryFeatures(layer, query);
+        if (page.transform) {
+          if (typeof page.unquantize !== "function") throw new Error("Quantized geometry requires SDK decoding");
+          page.unquantize();
+        }
         pages++;
         if (!page.features?.length) throw new Error("Pagination stopped before the preflight count");
         for (const feature of page.features) {

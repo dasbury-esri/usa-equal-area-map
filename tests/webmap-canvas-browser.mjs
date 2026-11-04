@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { chromium } from "playwright";
 
 export const itemIds = ["42430a34a2b44c0da678ce60ce20dd31", "bbda2d6bc77c495ab382e313f02888f1", "6100fd30484645e6b3ec7006d95aa7b8"];
@@ -50,6 +51,11 @@ async function run() {
     const districts = result.datasets.find(data => data.itemId === itemIds[2]);
     if (districts) assert.equal(districts.positiveAleutianVertices, 0);
     assert.ok(result.contexts.live <= 1);
+    if (process.argv.includes("--startup-check")) {
+      await verifyQuantization(page);
+      await captureAreaBaseline(page);
+      return;
+    }
     if (process.argv.includes("--performance-only")) {
       await verifyCulling(page);
       await verifyAreaDetail(page);
@@ -123,6 +129,70 @@ export async function verifyRendering(page) {
   assert.deepEqual(final.downloads, initial.downloads);
   assert.deepEqual(final.contexts, { live: 1, created: 1 });
   console.log("PASS shared zoom, independent pan, current-scale recenter, stable downloads/context");
+}
+
+export async function verifyQuantization(page) {
+  const checks = await page.evaluate(async () => {
+    const checks = [];
+    for (const dataset of window.webmapCanvas.datasets) {
+      const target = dataset.layer.portalItem.id === "6100fd30484645e6b3ec7006d95aa7b8" ? [-77, 39] : [-66, 18];
+      let selected, nearest = Infinity;
+      for (const feature of dataset.features) for (const ring of feature.geometry?.rings ?? []) {
+        const point = ring[0];
+        const distance = Math.hypot(point[0] - target[0], point[1] - target[1]);
+        if (distance < nearest) { selected = feature; nearest = distance; }
+      }
+      const id = selected.attributes[dataset.layer.objectIdField];
+      const service = new URL(dataset.layer.url);
+      if (!/\/\d+\/?$/.test(service.pathname)) service.pathname = `${service.pathname.replace(/\/$/, "")}/${dataset.layer.layerId}`;
+      service.pathname += "/query";
+      service.search = new URLSearchParams({ f: "json", objectIds: String(id), outSR: "4326", returnGeometry: "true",
+        outFields: dataset.layer.objectIdField, returnZ: "false", returnM: "false" });
+      const response = await fetch(service);
+      if (!response.ok) throw new Error(`Unquantized query HTTP ${response.status}`);
+      const raw = await response.json();
+      if (raw.error || raw.transform || raw.features?.length !== 1) throw new Error("Invalid unquantized control response");
+      const ring = selected.geometry.rings.reduce((longest, ring) => ring.length > longest.length ? ring : longest, []);
+      const samples = [ring[0], ring[Math.floor(ring.length / 3)], ring[Math.floor(ring.length * 2 / 3)]];
+      const vertices = raw.features[0].geometry.rings.flat();
+      checks.push({ item: dataset.layer.portalItem.id, id, tolerance: dataset.generalization,
+        vertices: samples.map(point => {
+          let error = Infinity, control;
+          for (const vertex of vertices) {
+            const difference = Math.max(Math.abs(point[0] - vertex[0]), Math.abs(point[1] - vertex[1]));
+            if (difference < error) { error = difference; control = vertex; }
+          }
+          return { decoded: point, unquantized: control, maximumAxisError: error };
+        }) });
+    }
+    return checks;
+  });
+  for (const check of checks) for (const vertex of check.vertices) {
+    assert.ok(vertex.maximumAxisError <= check.tolerance * 0.51 + 1e-8, JSON.stringify(check));
+  }
+  console.log("QUANTIZATION", JSON.stringify(checks));
+}
+
+export async function captureAreaBaseline(page) {
+  const datasets = await page.evaluate(async () => {
+    const { polygonParts, triangulate } = await import("/usa-equal-area-map/experiments/webmap-canvas/geometry.js");
+    return window.webmapCanvas.datasets.map(dataset => ({ item: dataset.layer.portalItem.id,
+      features: dataset.features.map(feature => {
+        let area = 0;
+        for (const polygon of polygonParts(feature.geometry?.rings ?? [])) {
+          const { vertices, indices } = triangulate(polygon);
+          for (let index = 0; index < indices.length; index += 3) {
+            const first = indices[index] * 2, second = indices[index + 1] * 2, third = indices[index + 2] * 2;
+            area += Math.abs((vertices[second] - vertices[first]) * (vertices[third + 1] - vertices[first + 1])
+              - (vertices[third] - vertices[first]) * (vertices[second + 1] - vertices[first + 1])) / 2;
+          }
+        }
+        return { id: feature.attributes[dataset.layer.objectIdField], area, geometry: feature.geometry?.toJSON() ?? null };
+      }) }));
+  });
+  const path = process.env.CANVAS_AREA_FIXTURE ?? "/tmp/usa-map-startup-areas.json";
+  writeFileSync(path, JSON.stringify(datasets));
+  console.log("AREA BASELINE", path, datasets.map(dataset => ({ item: dataset.item, features: dataset.features.length })));
 }
 
 export async function verifyCulling(page) {
