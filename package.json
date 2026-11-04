@@ -8,6 +8,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build && node tests/dependencies.mjs --build",
     "test:browser": "node tests/browser-smoke.mjs",
+    "test:retention": "node tests/view-retention.mjs",
     "test:scale-bars": "node tests/scale-bars.mjs",
     "test:dependencies": "node tests/dependencies.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"

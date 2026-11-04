@@ -63,6 +63,30 @@ For publication, run one final regression rather than repeatedly testing the
 same candidate. Do not rerun full dev and built rendering matrices merely for
 reassurance. This scope follows the owner's feedback in session 0009.
 
+## View Retention Release
+
+Owner-authorized for publication in [session 0011](session-logs/2026-11-03-0011-session-log.md):
+ordinary tab visibility changes and drawer
+closure no longer destroy map views. Drawers still create their views lazily
+on first open, then retain them. Only a trusted `webglcontextlost` event on a
+tracked, actually lost canvas context marks its group for recovery. On the
+next tab-visible transition, that group rebuilds with saved center, scale and
+rotation; unaffected groups remain intact.
+
+Native Chrome verification passed 12 two-tab and 18 three-tab switches at
+different sizes and URL options. Every switch retained all view identities:
+`created` stayed `9,8` or `9,8,9`, respectively. DevTools Protocol Network
+capture recorded zero new layer-query requests during every switch. Main,
+PR and drawer native context-loss recovery also passed, with exact navigation
+restoration. Focused lint/syntax checks and the Node 22 production build,
+dependency checks and all 578 chunk budgets passed. Older full rendering
+matrices were not repeated. See [session 0010](session-logs/2026-11-03-0010-session-log.md)
+for per-switch evidence, the repaired synthetic-event fixture and test limits.
+
+This behavior supersedes the destroy-on-hidden/close policy below. The final
+publication regression passed eight projection/layout/viewport cases and 40
+two-tab stress switches. Deployment verification is pending the authorized push.
+
 ## Published Performance Changes
 
 Published: Canvas 2D locator globes replace Three.js; globe layouts

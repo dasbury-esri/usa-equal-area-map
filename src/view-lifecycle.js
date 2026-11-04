@@ -1,10 +1,18 @@
 import MapView from "@arcgis/core/views/MapView.js";
 import Point from "@arcgis/core/geometry/Point.js";
-import { releaseAfterDestroy } from "./webgl-contexts.js";
+import { hasLostWebGLContext, releaseAfterDestroy } from "./webgl-contexts.js";
 
 export function createViewGroup(factory, onDestroy = () => {}) {
   const saved = new Map();
   let active;
+  const saveNavigation = views => {
+    for (const view of views) {
+      if (view.center && !view.destroyed) saved.set(view.container.id, {
+        center: view.center.toJSON(), scale: view.scale, rotation: view.rotation,
+        home: window.framingPreviewCenters.get(view)?.toJSON(),
+      });
+    }
+  };
   const group = {
     get views() { return active?.views ?? []; },
     start() {
@@ -21,6 +29,12 @@ export function createViewGroup(factory, onDestroy = () => {}) {
             center: new Point(snapshot.center), scale: snapshot.scale, rotation: snapshot.rotation,
           } : {}) });
           run.views.push(view);
+          view.container.addEventListener("webglcontextlost", event => {
+            if (!event.isTrusted || !hasLostWebGLContext(event.target) || run.contextLost) return;
+            run.contextLost = true;
+            saveNavigation(run.views);
+            run.controller.abort();
+          }, { capture: true, signal });
           if (snapshot?.home) window.framingPreviewCenters.set(view, new Point(snapshot.home));
           return view;
         },
@@ -37,6 +51,7 @@ export function createViewGroup(factory, onDestroy = () => {}) {
         },
       };
       run.ready = Promise.resolve().then(() => factory(scope)).catch(error => {
+        if (run.contextLost) return null;
         if (active === run) group.stop();
         if (error.name !== "AbortError") throw error;
         return null;
@@ -48,11 +63,8 @@ export function createViewGroup(factory, onDestroy = () => {}) {
       if (!run) return;
       active = null;
       run.controller.abort();
+      if (!run.contextLost) saveNavigation(run.views);
       for (const view of run.views.toReversed()) {
-        if (view.ready && view.center) saved.set(view.container.id, {
-          center: view.center.toJSON(), scale: view.scale, rotation: view.rotation,
-          home: window.framingPreviewCenters.get(view)?.toJSON(),
-        });
         const releaseContexts = releaseAfterDestroy(view.container);
         view.map = null;
         view.destroy();
@@ -61,6 +73,19 @@ export function createViewGroup(factory, onDestroy = () => {}) {
       onDestroy();
     },
   };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden || !active?.contextLost) return;
+    group.stop();
+    group.start().then(() => {
+      for (const view of group.views) {
+        const snapshot = saved.get(view.container.id);
+        if (snapshot) view.set({
+          center: new Point(snapshot.center), scale: snapshot.scale, rotation: snapshot.rotation,
+        });
+      }
+      window.dispatchEvent(new Event("map-views-ready"));
+    }).catch(error => console.error("Could not recover lost map contexts", error));
+  });
   return group;
 }
 
@@ -68,11 +93,7 @@ export function connectViewLifecycle({ createMain, createPr, createDrawer }) {
   if (!document.getElementById("mainViewDiv")) {
     const drawer = createViewGroup(createDrawer, () => { window.akView = null; });
     window.drawerLifecycle = drawer;
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) drawer.stop();
-      else if (window.parent === window) drawer.start().catch(console.error);
-    });
-    if (window.parent === window && !document.hidden) return drawer.start();
+    if (window.parent === window) return drawer.start();
     return drawer;
   }
   const main = createViewGroup(createMain, () => { window.mainView = null; });
@@ -90,17 +111,11 @@ export function connectViewLifecycle({ createMain, createPr, createDrawer }) {
     }, { once: true });
     frame.src = frame.dataset.src;
   });
-  const stopUnused = () => {
-    if (document.hidden || !prOpen()) pr.stop();
-    if (document.hidden || !leftOpen()) drawer()?.stop();
-    if (document.hidden) main.stop();
-  };
   window.viewLifecycle = { main, pr, get drawer() { return drawer(); } };
   window.updateMapViews = ({ reframe = false } = {}) => {
     needsFraming ||= reframe;
     const current = ++revision;
-    stopUnused();
-    const wanted = () => current === revision && !document.hidden;
+    const wanted = () => current === revision;
     window.viewsReady = (async () => {
       if (!wanted()) return null;
       await main.start();
@@ -113,7 +128,6 @@ export function connectViewLifecycle({ createMain, createPr, createDrawer }) {
         await drawer().start();
       }
       if (!wanted()) return null;
-      stopUnused();
       if (needsFraming) {
         const framing = await window.framingPreviewReady;
         if (!wanted()) return null;
@@ -125,8 +139,5 @@ export function connectViewLifecycle({ createMain, createPr, createDrawer }) {
     })();
     return window.viewsReady;
   };
-  document.addEventListener("visibilitychange", () => {
-    window.updateMapViews().catch(error => console.error("Could not restore map views", error));
-  });
   return window.updateMapViews();
 }

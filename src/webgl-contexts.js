@@ -56,6 +56,10 @@ for (const prototype of [HTMLCanvasElement.prototype, globalThis.OffscreenCanvas
 window.addEventListener("webgl-context-change", notify);
 document.addEventListener("visibilitychange", notify);
 
+export function hasLostWebGLContext(canvas) {
+  return canvasContexts.get(canvas)?.deref()?.isContextLost() === true;
+}
+
 export function releaseAfterDestroy(container) {
   const owned = Array.from(container.querySelectorAll("canvas"), canvas => canvasContexts.get(canvas)?.deref())
     .filter(Boolean);

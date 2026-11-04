@@ -128,12 +128,15 @@ try {
       });
       const other = await browser.context.newPage();
       await other.bringToFront();
-      await page.waitForFunction(() => document.hidden && !window.mainView);
-      await page.waitForFunction(() => window.previousScaleBars.every(bar => !bar.isConnected && bar.viewModel.destroyed));
+      await page.waitForFunction(() => document.hidden, null, { polling: 100 });
+      assert.equal(await page.evaluate(() => window.previousScaleBars.every(bar =>
+        bar.isConnected && !bar.viewModel.destroyed)), true);
       await page.bringToFront();
       await page.evaluate(async () => { await window.viewsReady; });
       await settled(page);
       assert.ok((await measure(page)).every(bar => bar.component && bar.associated));
+      assert.equal(await page.evaluate(() => window.previousScaleBars.every(bar =>
+        bar.view.container.querySelector("arcgis-scale-bar") === bar)), true);
       await other.close();
       for (const selector of ["#drawer-toggle", "#pr-drawer-toggle"]) {
         await page.locator(selector).click();

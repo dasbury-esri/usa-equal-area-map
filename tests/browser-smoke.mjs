@@ -205,11 +205,11 @@ try {
             }));
         });
         const otherTab = await browser.context.newPage();
+        const retainedContexts = await contextCount(page);
         await otherTab.bringToFront();
-        await page.waitForFunction(() => document.hidden && window.savedViews.every(saved => saved.view.destroyed)
-          && window.viewLifecycle.main.views.length === 0 && window.viewLifecycle.pr.views.length === 0
-          && window.viewLifecycle.drawer.views.length === 0, null, { polling: 100 });
-        assert.ok((await contextCount(page)).live <= 2);
+        await page.waitForFunction(() => document.hidden && window.savedViews.every(saved => !saved.view.destroyed),
+          null, { polling: 100 });
+        assert.equal((await contextCount(page)).created, retainedContexts.created);
         await page.bringToFront();
         await page.waitForFunction(() => !document.hidden && window.mainView?.ready && window.prView?.ready);
         await page.evaluate(() => window.viewsReady.then(() => true));
@@ -219,13 +219,14 @@ try {
             ...window.viewLifecycle.drawer.views];
           return window.savedViews.map(saved => {
             const view = views.find(current => current.container.id === saved.id);
-            return { id: saved.id, newView: view !== saved.view, sameMap: view.map === saved.map,
+            return { id: saved.id, sameView: view === saved.view, sameMap: view.map === saved.map,
               centerError: Math.hypot(view.center.x - saved.center.x, view.center.y - saved.center.y),
               scaleError: Math.abs(view.scale - saved.scale), rotationError: Math.abs(view.rotation - saved.rotation) };
           });
         });
-        for (const restored of restoration) assert.ok(restored.newView && restored.sameMap
+        for (const restored of restoration) assert.ok(restored.sameView && restored.sameMap
           && restored.centerError < 1 && restored.scaleError < 1 && restored.rotationError < 0.001, JSON.stringify(restored));
+        assert.equal((await contextCount(page)).created, retainedContexts.created);
         await otherTab.close();
       }
       const twoTabCounts = [];
@@ -246,14 +247,18 @@ try {
         for (let turn = 0; turn < 10; turn++) {
           const foreground = turn % 2 ? second : page;
           const background = turn % 2 ? page : second;
+          const beforeForeground = await contextCount(foreground);
+          const beforeBackground = await contextCount(background);
           await foreground.bringToFront();
-          await background.waitForFunction(() => document.hidden && !window.mainView, null, { polling: 100 });
+          await background.waitForFunction(() => document.hidden && window.mainView?.ready, null, { polling: 100 });
           await foreground.waitForFunction(() => !document.hidden && window.mainView?.ready && window.prView?.ready);
           await foreground.evaluate(() => window.viewsReady.then(() => true));
           await settled(foreground);
           const visibleCount = await contextCount(foreground);
           const hiddenCount = await contextCount(background);
-          assert.ok(visibleCount.live <= 8 && hiddenCount.live <= 2);
+          assert.ok(visibleCount.live <= 8 && hiddenCount.live <= 8);
+          assert.equal(visibleCount.created, beforeForeground.created);
+          assert.equal(hiddenCount.created, beforeBackground.created);
           twoTabCounts.push({ visible: visibleCount.live, hidden: hiddenCount.live, total: visibleCount.live + hiddenCount.live });
         }
         await page.bringToFront();
@@ -264,9 +269,9 @@ try {
       }
       await page.locator("#drawer-toggle").click();
       await page.waitForFunction(scale => Math.abs(window.mainView.scale - scale) < 1, initial.scale);
-      await page.waitForFunction(() => window.viewLifecycle.drawer.views.length === 0);
+      assert.equal(await page.evaluate(() => window.viewLifecycle.drawer.views.length), globes ? 4 : 5);
       await page.locator("#pr-drawer-toggle").click();
-      await page.waitForFunction(() => window.viewLifecycle.pr.views.length === 0);
+      assert.equal(await page.evaluate(() => window.viewLifecycle.pr.views.length), 1);
       for (let cycle = 0; cycle < 2; cycle++) {
         await page.locator("#drawer-toggle").click();
         await page.locator("#pr-drawer-toggle").click();
@@ -277,8 +282,9 @@ try {
           && document.querySelector("#drawer-iframe").contentWindow.akView.scale === 7000000);
         await page.locator("#pr-drawer-toggle").click();
         await page.locator("#drawer-toggle").click();
-        await page.waitForFunction(() => window.viewLifecycle.pr.views.length === 0
-          && window.viewLifecycle.drawer.views.length === 0);
+        await page.evaluate(() => window.viewsReady.then(() => true));
+        assert.equal(await page.evaluate(() => window.viewLifecycle.pr.views.length
+          + window.viewLifecycle.drawer.views.length), opened.count - 1);
       }
       await page.evaluate(() => {
         for (let cycle = 0; cycle < 6; cycle++) {
@@ -288,7 +294,8 @@ try {
       });
       await page.evaluate(() => window.viewsReady.then(() => true));
       assert.equal(await page.evaluate(() => window.viewLifecycle.main.views.length
-        + window.viewLifecycle.pr.views.length + window.viewLifecycle.drawer.views.length), 1);
+        + window.viewLifecycle.pr.views.length + window.viewLifecycle.drawer.views.length), opened.count);
+      assert.equal((await contextCount(page)).created, openedContexts.created);
       assert.deepEqual(errors, []);
       assert.deepEqual(warnings, []);
       console.log(JSON.stringify({ label, result: "PASS", initialContexts, openedContexts, twoTabCounts, ...opened }));
