@@ -29,6 +29,25 @@ including [src/main.js](src/main.js); publish only after owner review and
 explicit approval. The approved release below is now live; subsequent local
 edits still require a separately approved production push.
 
+## Local Performance Changes
+
+Not yet published: Canvas 2D locator globes replace Three.js; globe layouts
+skip overview creation. Drawer and PR views are created on first open and
+destroyed on close. Hidden tabs destroy all views and restore navigation on
+return, retaining maps/layers. Console diagnostics report live document/iframe
+WebGL contexts; destroyed render contexts are explicitly released.
+
+Unsupported `sharedViews` options are removed. Regional maps omit graticules;
+only the standard overview owns them and its separate retained layer clones.
+All four projection/layout combinations passed native Chrome at 1920x1080 and
+2560x1600 for each implementation step. Final two-tab globe stress passed
+40 switches with no context accumulation or context-limit warning. The build
+passed; dependency audit findings and the large-bundle warning remain.
+
+See [session 0004](session-logs/2026-11-03-0004-session-log.md) for counts,
+validation limitations and the proposed, unimplemented iframe migration.
+No push or deployment is authorized for these performance changes.
+
 ## Published Release
 
 - Runtime commit: `f7503c35a6d922fc735f6ca551034248a7adb6b9`.

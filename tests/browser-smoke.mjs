@@ -28,7 +28,19 @@ async function settled(page) {
     const views = [window.mainView, window.prView, ...Array.from(child.akView?.constructor.views ?? [])];
     return views.length >= 6 && views.every(view => view?.ready && view.stationary
       && !view.updating && view.layerViews.length > 0);
-  }, null, { timeout: 90000 });
+  }, null, { timeout: 90000 }).catch(async error => {
+    console.error("Unsettled views", await page.evaluate(() => {
+      const child = document.querySelector("#drawer-iframe").contentWindow;
+      return { visibility: document.visibilityState,
+        views: [window.mainView, window.prView, ...Array.from(child.akView?.constructor.views ?? [])]
+          .filter(Boolean).map(view => ({ id: view.container?.id, ready: view.ready,
+            stationary: view.stationary, updating: view.updating,
+            layers: view.map?.layers.map(layer => ({ id: layer.id, status: layer.loadStatus })).toArray(),
+          })),
+      };
+    }));
+    throw error;
+  });
 }
 
 async function contextCount(page) {
@@ -54,6 +66,12 @@ try {
       await page.bringToFront();
       const errors = [];
       const warnings = [];
+      const graticuleRequests = [];
+      page.on("request", request => {
+        if (/278e3884c50649baba4910a6d7b39922|3d47090c1ecc4fb1a84458cbc0274888/.test(request.url())) {
+          graticuleRequests.push(request.url());
+        }
+      });
       page.on("pageerror", error => errors.push(error.message));
       page.on("console", message => {
         if (/Too many active WebGL contexts/i.test(message.text())) warnings.push(message.text());
@@ -68,6 +86,7 @@ try {
       })), { main: 1, pr: 0, iframe: "about:blank" });
       const initialContexts = await contextCount(page);
       assert.ok(initialContexts.live <= 3);
+      assert.equal(graticuleRequests.length, 0);
       const initial = await page.evaluate(() => ({ scale: window.mainView.scale, center: window.mainView.center.toJSON() }));
       assert.ok(initial.scale < 24000000);
       await page.locator("#drawer-toggle").click();
@@ -110,11 +129,23 @@ try {
           overview: overview ? { x: overview.center.x, y: overview.center.y, rotation: overview.rotation } : null,
           canvases,
           layers: window.mainView.map.layers.map(layer => ({ id: layer.id, status: layer.loadStatus })).toArray(),
+          layerMembership: views.map(view => ({ id: view.container.id,
+            layers: view.map.layers.map(layer => layer.id).toArray(),
+            owned: view.map.layers.every(layer => layer.parent === view.map),
+            graticuleViews: view.layerViews.filter(layerView => /^latlong/.test(layerView.layer.id)).length,
+          })),
         };
       }, { albers, globes });
       assert.equal(opened.count, globes ? 6 : 7);
       assert.equal(opened.correctProjections, true);
       assert.equal(opened.linked, true);
+      for (const membership of opened.layerMembership) {
+        assert.equal(membership.layers.length, 8);
+        assert.equal(membership.owned, true);
+        assert.equal(membership.graticuleViews, membership.id === "overViewDiv" ? 2 : 0);
+        assert.equal(membership.layers.filter(id => /^latlong/.test(id)).length, membership.id === "overViewDiv" ? 2 : 0);
+      }
+      assert.equal(graticuleRequests.length > 0, !globes);
       if (albers) {
         assert.ok(Math.abs(opened.alaskaCenter.x + 601787.4469695078) < 0.001);
         assert.ok(Math.abs(opened.alaskaCenter.y - 1417319.4019033893) < 0.001);

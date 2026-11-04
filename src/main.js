@@ -341,7 +341,6 @@ const App =  () => {
         //id: "055f54c736c44955a2f2e808df5280b1" // National Water Model Maximum Flow (10 Day Forecast)
         //id: "6ec4f16b6f334cedab28bb7c585ff410" // Environmental Justice Grants (Public Environmental Data Partners)
       },
-      sharedViews: true,
     });
     var airportRunways = new FeatureLayer({ 
       id: "airportRunways",
@@ -352,7 +351,6 @@ const App =  () => {
       // Set the minimum and maximum scale for the layer
       minScale: 1000000,
       maxScale: 1000,
-      sharedViews: true,
     });
     var airportGrounds = new FeatureLayer({ 
       id: "airportGrounds",
@@ -362,7 +360,6 @@ const App =  () => {
       // Set the minimum and maximum scale for the layer
       minScale: 1000000,
       maxScale: 1000,
-      sharedViews: true,
     });
 /*    var imageryLayer = new ImageryLayer({
         id: "imageryLayer",
@@ -371,31 +368,14 @@ const App =  () => {
           id: "275e8cef559e4d75a0f10ba93d553ecd" // Black Marble VIIRS composite (Black and White)
           //id: "2232d6e5d932492292072f941dcc4a3b" // Black Marble VIIRS composite (Blue / Yellow)
         },
-        sharedViews: true,
     });
- */   var latlongLayer = new FeatureLayer({
-        id: "latlongLayer",
-        portalItem:{
-          id:"278e3884c50649baba4910a6d7b39922"
-        },
-        popupEnabled: false,
-        sharedViews: true,
-    });
-    var latlong180Layer = new FeatureLayer({
-        id: "latlong180Layer",
-        portalItem:{
-          id:"3d47090c1ecc4fb1a84458cbc0274888"
-        },
-        popupEnabled: false,
-        sharedViews: true,
-    });
+ */
  /*   var eezLayer = new WFSLayer({
       id: "eezLayer",
       portalItem:{
         id:"fb31317c56b8485b967f5eccd1371ed3",
       },
       definitionExpression: "sovereign1 = 'United States' OR sovereign2 = 'United States'",
-      sharedViews: true,
     });
     var freeAssocLayer = new WFSLayer({
       id: "freeAssocLayer",
@@ -403,7 +383,6 @@ const App =  () => {
         id:"fb31317c56b8485b967f5eccd1371ed3",
       },
       definitionExpression: "sovereign1 = 'Palau' OR sovereign1 = 'Micronesia' OR sovereign1 = 'Marshall Islands'",
-      sharedViews: true,
     });
 */
     var backgroundLayer = new FeatureLayer({
@@ -424,7 +403,6 @@ const App =  () => {
           }
         },
         popupEnabled: false,
-        sharedViews: true,
       });
 
       var usStatesLayer = new FeatureLayer({
@@ -446,7 +424,6 @@ const App =  () => {
           }
         },
         popupEnabled: false,
-        sharedViews: true,
       });
 
       const contextLayer = new FeatureLayer({
@@ -495,13 +472,23 @@ const App =  () => {
             }
           }
         },
-        sharedViews: true,
       }); 
     // If no parameters are specified in the url, display the default map
     var layer = defaultLayer;
     var layerMap = new Map({
-      layers: [oceanLayer,latlongLayer, latlong180Layer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer, airportGrounds, airportRunways] //imageryLayer] //oceanLayer,
+      layers: [oceanLayer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer, airportGrounds, airportRunways]
     });
+    let overviewMap = null;
+    if (!globeTrial && document.getElementById("akViewDiv")) {
+      overviewMap = new Map({
+        layers: [oceanLayer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer]
+          .map(source => source.clone()),
+      });
+      overviewMap.addMany([
+        new FeatureLayer({ id: "latlongLayer", portalItem: { id: "278e3884c50649baba4910a6d7b39922" }, popupEnabled: false }),
+        new FeatureLayer({ id: "latlong180Layer", portalItem: { id: "3d47090c1ecc4fb1a84458cbc0274888" }, popupEnabled: false }),
+      ], 1);
+    }
     var map = layerMap;
     var scale = viewDefaults.main.scale;
     const createMain = async (scope) => {
@@ -685,7 +672,7 @@ const App =  () => {
 
     const overView = globeTrial ? null : scope.create({
         container: "overViewDiv",
-        map: map,
+        map: overviewMap,
         background: { 
           color: "#DCDCDC" 
         },
