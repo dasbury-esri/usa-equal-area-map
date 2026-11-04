@@ -69,6 +69,19 @@ cold and 70 seconds warm, dominated by ring-containment/geometry preparation.
 These gains do not establish overall readiness. Fidelity and heavy-iframe gaps
 remain; no new production deployment is authorized.
 
+Startup follow-up in [session 0018](session-logs/2026-11-04-0018-session-log.md)
+supersedes those startup/iframe results: view quantization, explicit decoding,
+orientation-based hole assignment, CPU proj4 chunk bounds and per-range draws
+reduce production-preview completion to 18.64s cold / 4.93s warm. Preparation is
+3.37s / 3.33s. Four 960x540 embeds all render three layers with one context each,
+completing in 20.92s cold / 11.76s warm. Geometry GPU buffers are 30.28MB for the
+standalone framing or 21.40MB per smaller embed, excluding framebuffer/driver
+memory. Startup uses no GPU readback or scratch copies. Nine sampled decoded
+vertices pass independent unquantized-query checks. The identical-input area
+audit lists 24 of 962 features differing by more than 0.1%; fidelity is still
+unaccepted. All five changes are separately measured/committed locally;
+nothing from this follow-up is pushed or deployed. STATUS `next_action` is unchanged.
+
 ## Local Development
 
 Use one repository-backed dev instance at

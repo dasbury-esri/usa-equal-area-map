@@ -4,6 +4,36 @@
 - Recorded: 2026-11-04 09:29:49+00:00[UTC]
 - Scope: Unpublished `prototype/webmap-canvas`; no main merge or publication
 
+## Current Startup Follow-Up
+
+Recorded 2026-11-04 21:15:07+00:00[UTC]. The owner authorized five measured
+startup commits; [session 0018](../../session-logs/2026-11-04-0018-session-log.md)
+records their individual results and all area exceptions. This supersedes the
+historical `maxAllowableOffset`, Terraformer, GPU-bound-readback, scratch-copy,
+startup and heavy-four-iframe limitations below; the original results are retained.
+
+Queries use view quantization at the current degree tolerance and a grid extent
+enclosing the multipart query footprint. SDK FeatureSets are explicitly decoded.
+Clockwise outer rings and counter-clockwise holes use smallest-containing-outer
+assignment; zero-area rings and uncontained holes are dropped and counted.
+Terraformer is removed. CPU proj4 computes conservative chunk bounds from actual
+Float32 vertices; geometry remains projected in the GPU vertex shader. Drawing
+uses visible contiguous ranges without scratch allocation/copying.
+
+Production preview: cold/warm completion 18.64s/4.93s; preparation 3.37s/3.33s;
+first-draw phase 2.6ms/1.9ms. Four 960x540 embeds pass all-three-layer, nonblank,
+one-context-each checks in 20.92s/11.76s. Actual geometry-buffer memory is
+30,280,176 bytes for standalone framing, or 21,402,696 bytes per smaller embed;
+framebuffer, compositor and driver memory are not included. Startup instrumentation
+records zero GPU readbacks and copies. Timings are single samples and first draw
+is not GPU-present timing; four child phase times include shared-thread contention.
+
+Nine decoded vertex samples match independent unquantized queries within half
+the grid tolerance. The frozen same-input triangulated-area audit finds 24 of
+962 features exceeding 0.1% difference, all listed in session 0018. This is not
+area/fidelity parity or replacement acceptance. Existing outline/geometry artifacts
+and the deferred owner WebMap remain open. No main merge, push or deployment.
+
 ## Architecture
 
 The main application retains its ArcGIS MapViews. An unlinked Vite experiment

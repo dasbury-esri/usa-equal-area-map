@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchNativeBrowser } from "./native-browser.mjs";
-import { applyComparisonStyle, comparisonStyles, base as devBase, itemIds } from "./webmap-canvas-browser.mjs";
+import { applyComparisonStyle, base as devBase, itemIds } from "./webmap-canvas-browser.mjs";
 import { measureAccuracy } from "./webmap-canvas-accuracy.mjs";
 
 const base = process.env.COMPARISON_BASE ?? devBase;
@@ -20,7 +20,17 @@ const results = { mode: native ? "native Chrome" : "headless Chrome", base, runt
   layers: selectedIds, scale: 24000000, loads: [], captures: [], errors: [] };
 
 async function instrument(page) {
-  await page.addInitScript(ids => { window.__webmapCanvasComparisonItems = ids; }, selectedIds);
+  await page.addInitScript(ids => {
+    window.__webmapCanvasComparisonItems = ids;
+    window.__startupGpuCalls = { getBufferSubData: 0, copyBufferSubData: 0 };
+    for (const name of Object.keys(window.__startupGpuCalls)) {
+      const original = WebGL2RenderingContext.prototype[name];
+      WebGL2RenderingContext.prototype[name] = function (...args) {
+        window.__startupGpuCalls[name]++;
+        return original.apply(this, args);
+      };
+    }
+  }, selectedIds);
   const cdp = await page.context().newCDPSession(page);
   let requests = new Map();
   await cdp.send("Network.enable");
@@ -40,7 +50,10 @@ async function instrument(page) {
       await cdp.send("Fetch.fulfillRequest", { requestId: event.requestId, responseCode: 200,
         responseHeaders: (event.responseHeaders ?? []).filter(header => !["content-length", "content-encoding"].includes(header.name.toLowerCase())),
         body: Buffer.from(JSON.stringify(applyComparisonStyle(json, index))).toString("base64") });
-    } catch (error) { results.errors.push(`Fixture interception: ${error.message}`); }
+    } catch (error) {
+      results.errors.push(`Fixture interception: ${error.message}`);
+      await cdp.send("Fetch.continueRequest", { requestId: event.requestId }).catch(() => {});
+    }
   });
   await cdp.send("Fetch.enable", { patterns: itemIds.map(id => ({ urlPattern: `*/items/${id}/data*`, requestStage: "Response" })) });
   return { cdp, reset: () => { requests = new Map(); }, snapshot: () => {
@@ -154,6 +167,8 @@ try {
         contexts: kind === "prototype" ? window.getWebGLContextStats().live : window.getLiveWebGLContexts(),
         renderer: kind === "prototype" ? { layers: window.webmapCanvas.renderer.layers.length,
           timings: window.webmapCanvas.timings,
+          firstRenderMs: window.webmapCanvas.firstRenderMs,
+          gpuCalls: window.__startupGpuCalls,
           symbolDraws: window.webmapCanvas.renderer.layers.reduce((sum, layer) => sum + layer.draws.length, 0),
           drawStats: window.webmapCanvas.renderer.drawStats,
           gpuGeometryBytes: window.webmapCanvas.renderer.layers.reduce((sum, layer) => {
@@ -164,6 +179,10 @@ try {
           uploadBytes: window.webmapCanvas.renderer.layers.reduce((sum, layer) => sum + layer.bytes, 0),
           vertices: window.webmapCanvas.datasets.map(data => ({ item: data.layer.portalItem.id, count: data.count, vertices: data.vertices, pages: data.pages })) } : null }), kind);
       const load = { kind, cache, ...timing, network: network.snapshot() };
+      if (kind === "prototype") {
+        assert.deepEqual(load.renderer.gpuCalls, { getBufferSubData: 0, copyBufferSubData: 0 });
+        assert.equal(load.renderer.gpuGeometryBytes, load.renderer.uploadBytes);
+      }
       if (!setupOnly && !native) {
         load.pan = await panIntervals(page, kind);
         const after = network.snapshot();
@@ -199,18 +218,56 @@ try {
   if (!setupOnly && !native && !process.argv.includes("--no-four")) {
     const page = await browser.context.newPage();
     await page.setViewportSize({ width: 1920, height: 1080 });
-    await comparisonStyles(page);
-    await page.goto(`${base}experiments/webmap-canvas/four.html?layers=${selectedIds.join(",")}`);
-    try {
-      await page.waitForFunction(() => [...document.querySelectorAll("iframe")].length === 4
-        && [...document.querySelectorAll("iframe")].every(frame => ["ready", "error"].includes(frame.contentWindow.webmapCanvas?.status)), null, { timeout: 120000 });
-    } catch (error) { results.fourTimeout = error.message; }
-    results.four = await page.evaluate(() => ({ cache: "disabled by Playwright routing", completeMs: performance.now(), children: [...document.querySelectorAll("iframe")].map(frame => ({
-      status: frame.contentWindow.webmapCanvas?.status, rendered: frame.contentWindow.webmapCanvas?.renderer?.layers.length,
-      reports: frame.contentWindow.webmapCanvas?.reports,
-      contexts: frame.contentWindow.getWebGLContextStats?.(), firstRenderMs: frame.contentWindow.webmapCanvas?.firstRenderMs })) }));
-    console.log("FOUR", JSON.stringify(results.four));
-    assert.ok(results.four.children.every(child => child.status === "ready" && child.rendered === selectedIds.length && child.contexts.live === 1), JSON.stringify(results.four));
+    const network = await instrument(page);
+    results.four = [];
+    for (const cache of ["cold", "warm"]) {
+      if (cache === "cold") await network.cdp.send("Network.clearBrowserCache");
+      network.reset();
+      await page.goto(`${base}experiments/webmap-canvas/four.html?layers=${selectedIds.join(",")}`);
+      let timeout;
+      try {
+        await page.waitForFunction(() => [...document.querySelectorAll("iframe")].length === 4
+          && [...document.querySelectorAll("iframe")].every(frame => ["ready", "error"].includes(frame.contentWindow.webmapCanvas?.status)), null, { timeout: 120000 });
+      } catch (error) { timeout = error.message; }
+      const measured = await page.evaluate(() => {
+        const children = [...document.querySelectorAll("iframe")].map(frame => {
+          const child = frame.contentWindow, state = child.webmapCanvas, renderer = state?.renderer, gl = renderer?.gl;
+          let gpuGeometryBytes = 0, changedPixels = 0;
+          if (gl && !gl.isContextLost()) {
+            for (const layer of renderer.layers) {
+              gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
+              gpuGeometryBytes += gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE);
+            }
+            renderer.draw();
+            const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
+            gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+            for (let index = 0; index < pixels.length; index += 4) if (Math.abs(pixels[index] - 237) > 3) changedPixels++;
+          }
+          return { status: state?.status, rendered: renderer?.layers.length, reports: state?.reports,
+            width: child.innerWidth, height: child.innerHeight, contexts: child.getWebGLContextStats?.(),
+            firstRenderMs: state?.firstRenderMs, parentReadyMs: state?.firstRenderMs === undefined ? null
+              : child.performance.timeOrigin + state.firstRenderMs - performance.timeOrigin,
+            timings: state?.timings, gpuCalls: child.__startupGpuCalls, gpuGeometryBytes,
+            declaredBytes: renderer?.layers.reduce((sum, layer) => sum + layer.bytes, 0), changedPixels, glError: gl?.getError(),
+            draws: renderer?.drawStats.calls, features: state?.datasets.map(data => ({ item: data.layer.portalItem.id, count: data.count })) };
+        });
+        return { observedMs: performance.now(), completeMs: children.every(child => child.status === "ready" && child.parentReadyMs !== null)
+          ? Math.max(...children.map(child => child.parentReadyMs)) : null, children };
+      });
+      const load = { cache, timeout, ...measured, network: network.snapshot() };
+      results.four.push(load);
+      console.log("FOUR", JSON.stringify(load));
+      assert.equal(timeout, undefined, JSON.stringify(load));
+      assert.equal(load.children.length, 4);
+      for (const child of load.children) {
+        assert.ok(child.status === "ready" && child.rendered === selectedIds.length && child.contexts.live === 1, JSON.stringify(child));
+        assert.ok(child.changedPixels > 0);
+        assert.equal(child.glError, 0);
+        assert.equal(child.gpuGeometryBytes, child.declaredBytes);
+        assert.deepEqual(child.gpuCalls, { getBufferSubData: 0, copyBufferSubData: 0 });
+      }
+      await page.screenshot({ path: join(artifacts, `four-${cache}.png`) });
+    }
     await page.close();
   }
   if (results.accuracy) for (const row of results.accuracy.rows) assert.ok(row.maxPixels <= 1);
