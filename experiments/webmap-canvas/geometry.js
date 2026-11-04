@@ -1,5 +1,4 @@
 import earcut, { flatten } from "earcut";
-import { arcgisToGeoJSON } from "@terraformer/arcgis";
 import { rgba } from "./renderers.js";
 
 export const MAX_EDGE_DEGREES = 0.25;
@@ -33,38 +32,49 @@ export function densifyPath(path) {
   return result;
 }
 
-export function polygonParts(rings) {
+export function polygonParts(rings, diagnostics = { zeroAreaRings: 0, uncontainedHoles: 0 }) {
   const reference = rings[0]?.[0]?.[0] ?? 0;
-  const continuous = rings.map(ring => continuousPath(ring, reference));
-  const polygons = partitionRings(continuous).flatMap(rings => {
-    const geometry = arcgisToGeoJSON({ rings, spatialReference: { wkid: 4326 } });
-    return geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
-  });
-  return polygons.map(polygon => polygon.map(densifyPath));
-}
-
-export function partitionRings(rings) {
-  const groups = [];
-  for (const [index, ring] of rings.entries()) {
+  const outers = [], holes = [];
+  for (const input of rings) {
+    const ring = continuousPath(input, reference);
+    let area = 0;
     const bounds = [Infinity, Infinity, -Infinity, -Infinity];
-    for (const [longitude, latitude] of ring) {
+    const origin = ring[0];
+    for (let index = 0; index < ring.length; index++) {
+      const [longitude, latitude] = ring[index], next = ring[(index + 1) % ring.length];
+      area += (longitude - origin[0]) * (next[1] - origin[1]) - (next[0] - origin[0]) * (latitude - origin[1]);
       bounds[0] = Math.min(bounds[0], longitude); bounds[1] = Math.min(bounds[1], latitude);
       bounds[2] = Math.max(bounds[2], longitude); bounds[3] = Math.max(bounds[3], latitude);
     }
-    const group = { bounds, rings: [{ index, ring }] };
-    for (let candidate = 0; candidate < groups.length; candidate++) {
-      const other = groups[candidate];
-      if (bounds[0] > other.bounds[2] || bounds[2] < other.bounds[0]
-        || bounds[1] > other.bounds[3] || bounds[3] < other.bounds[1]) continue;
-      bounds[0] = Math.min(bounds[0], other.bounds[0]); bounds[1] = Math.min(bounds[1], other.bounds[1]);
-      bounds[2] = Math.max(bounds[2], other.bounds[2]); bounds[3] = Math.max(bounds[3], other.bounds[3]);
-      group.rings.push(...other.rings);
-      groups.splice(candidate, 1);
-      candidate = -1;
-    }
-    groups.push(group);
+    if (area === 0) { diagnostics.zeroAreaRings++; continue; }
+    if (ring.at(-1)[0] !== origin[0] || ring.at(-1)[1] !== origin[1]) ring.push([...origin]);
+    if (area < 0) outers.push({ ring, bounds, area: -area, holes: [] });
+    else holes.push(ring);
   }
-  return groups.map(group => group.rings.sort((first, second) => first.index - second.index).map(entry => entry.ring));
+  const smallestFirst = [...outers].sort((first, second) => first.area - second.area);
+  for (const hole of holes) {
+    const [longitude, latitude] = hole[0];
+    const outer = smallestFirst.find(({ bounds, ring }) => longitude >= bounds[0] && longitude <= bounds[2]
+      && latitude >= bounds[1] && latitude <= bounds[3] && containsPoint(ring, longitude, latitude));
+    if (outer) outer.holes.push(hole);
+    else diagnostics.uncontainedHoles++;
+  }
+  return outers.map(outer => [outer.ring, ...outer.holes].map(densifyPath));
+}
+
+function containsPoint(ring, longitude, latitude) {
+  let inside = false;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
+    const first = ring[previous], second = ring[index];
+    const cross = (longitude - first[0]) * (second[1] - first[1]) - (latitude - first[1]) * (second[0] - first[0]);
+    if (cross === 0 && longitude >= Math.min(first[0], second[0]) && longitude <= Math.max(first[0], second[0])
+      && latitude >= Math.min(first[1], second[1]) && latitude <= Math.max(first[1], second[1])) return true;
+    if ((first[1] > latitude) !== (second[1] > latitude)
+      && longitude < (second[0] - first[0]) * (latitude - first[1]) / (second[1] - first[1]) + first[0]) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 
 export function triangulate(polygon) {
@@ -98,6 +108,7 @@ class InstanceBuffer {
 }
 
 export async function prepareGeometry(dataset, budget) {
+  const diagnostics = dataset.geometryDiagnostics = { zeroAreaRings: 0, uncontainedHoles: 0 };
   const groups = new Map();
   const group = draw => {
     const key = JSON.stringify(draw);
@@ -124,7 +135,7 @@ export async function prepareGeometry(dataset, budget) {
     if (symbol.type !== expectedType) throw new Error(`Symbol ${symbol.type} cannot render ${geometry.type}`);
     const color = rgba(symbol.color, dataset.opacity);
     const outline = rgba(symbol.outline?.color, dataset.opacity);
-    const polygons = geometry.type === "polygon" ? polygonParts(geometry.rings) : [];
+    const polygons = geometry.type === "polygon" ? polygonParts(geometry.rings, diagnostics) : [];
     const paths = geometry.type === "polyline" ? geometry.paths.map(path => densifyPath(continuousPath(path))) : polygons.flat();
     const points = geometry.type === "point" ? [[geometry.x, geometry.y]] : geometry.points ?? [];
     budget.vertices += paths.reduce((sum, path) => sum + path.length, 0) + points.length;

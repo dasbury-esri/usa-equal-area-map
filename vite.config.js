@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: { port: 5173, strictPort: true },
   base: "/usa-equal-area-map/",
-  optimizeDeps: { include: ["earcut", "proj4", "@terraformer/arcgis", "geographiclib-geodesic", "lucide"] },
+  optimizeDeps: { include: ["earcut", "proj4", "geographiclib-geodesic", "lucide"] },
   build: {
     chunkSizeWarningLimit: 1450,
     rollupOptions: {

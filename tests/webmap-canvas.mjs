@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import test from "node:test";
-import { arcgisToGeoJSON } from "@terraformer/arcgis";
 import { parseOptions, resolveSwipe } from "../experiments/webmap-canvas/config.js";
 import { createDownloader, flattenLayers, quantizationParameters, visibleAtScale } from "../experiments/webmap-canvas/data.js";
 import { compileRenderer } from "../experiments/webmap-canvas/renderers.js";
-import { continuousPath, densifyPath, partitionRings, polygonParts, prepareGeometry, triangulate, visibleRanges } from "../experiments/webmap-canvas/geometry.js";
+import { continuousPath, densifyPath, polygonParts, prepareGeometry, triangulate, visibleRanges } from "../experiments/webmap-canvas/geometry.js";
 import { generalizationForScale, needsRefresh, queryFootprint, splitBounds } from "../experiments/webmap-canvas/coverage.js";
 
 test("prototype defaults and explicit inputs", () => {
@@ -196,20 +197,45 @@ test("culling skips offscreen chunks and merges adjacent visible ranges", () => 
   assert.deepEqual(visibleRanges(draw, "conus", [0, 0, 10, 10], false), [{ offset: 0, count: 12 }]);
 });
 
-test("ring prefilter preserves independent Terraformer conversion", () => {
-  const rings = [
-    [[0, 0], [0, 4], [4, 4], [4, 0], [0, 0]],
-    [[1, 1], [3, 1], [3, 3], [1, 3], [1, 1]],
-    [[20, 20], [20, 25], [25, 25], [25, 20], [20, 20]],
-    [[21, 21], [24, 21], [24, 24], [21, 24], [21, 21]],
-    [[40, 40], [41, 40], [41, 41], [40, 41], [40, 40]],
-  ];
-  const polygons = rings => {
-    const geometry = arcgisToGeoJSON({ rings });
-    return geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
-  };
-  const normalize = polygons => polygons.map(polygon => JSON.stringify(polygon)).sort();
-  const groups = partitionRings(rings);
-  assert.equal(groups.length, 3);
-  assert.deepEqual(normalize(groups.flatMap(polygons)), normalize(polygons(rings)));
+test("holes use the smallest containing clockwise ring; degenerate and orphan rings are counted", () => {
+  const large = [[0, 0], [0, 10], [10, 10], [10, 0], [0, 0]];
+  const small = [[2, 2], [2, 8], [8, 8], [8, 2], [2, 2]];
+  const hole = [[3, 3], [4, 3], [4, 4], [3, 4], [3, 3]];
+  const orphan = hole.map(([longitude, latitude]) => [longitude + 20, latitude]);
+  for (const rings of [[large, small, hole], [hole, small, large]]) {
+    const diagnostics = { zeroAreaRings: 0, uncontainedHoles: 0 };
+    const polygons = polygonParts([...rings, [], [[1, 1], [2, 2], [3, 3]], orphan], diagnostics);
+    assert.equal(polygons.length, 2);
+    assert.equal(polygons.find(polygon => polygon[0][0][0] === 2).length, 2);
+    assert.equal(polygons.find(polygon => polygon[0][0][0] === 0).length, 1);
+    assert.deepEqual(diagnostics, { zeroAreaRings: 2, uncontainedHoles: 1 });
+  }
+  const concave = [[0, 0], [0, 5], [2, 5], [2, 2], [5, 2], [5, 0], [0, 0]];
+  const diagnostics = { zeroAreaRings: 0, uncontainedHoles: 0 };
+  assert.equal(polygonParts([concave, hole], diagnostics)[0].length, 1);
+  assert.equal(diagnostics.uncontainedHoles, 1);
+});
+
+test("audit per-feature area against a captured pre-change baseline", { skip: !process.env.CANVAS_AREA_FIXTURE }, () => {
+  const bytes = readFileSync(process.env.CANVAS_AREA_FIXTURE);
+  const report = { inputSHA256: createHash("sha256").update(bytes).digest("hex"), layers: [], differences: [] };
+  for (const dataset of JSON.parse(bytes)) {
+    const diagnostics = { zeroAreaRings: 0, uncontainedHoles: 0 };
+    for (const feature of dataset.features) {
+      let area = 0;
+      for (const polygon of polygonParts(feature.geometry?.rings ?? [], diagnostics)) {
+        const { vertices, indices } = triangulate(polygon);
+        for (let index = 0; index < indices.length; index += 3) {
+          const [first, second, third] = indices.slice(index, index + 3).map(vertex => vertex * 2);
+          area += Math.abs((vertices[second] - vertices[first]) * (vertices[third + 1] - vertices[first + 1])
+            - (vertices[third] - vertices[first]) * (vertices[second + 1] - vertices[first + 1])) / 2;
+        }
+      }
+      assert.ok(Number.isFinite(area) && Number.isFinite(feature.area));
+      const percent = feature.area === 0 ? area === 0 ? 0 : Infinity : Math.abs(area - feature.area) / feature.area * 100;
+      if (percent > 0.1) report.differences.push({ item: dataset.item, id: feature.id, oldArea: feature.area, newArea: area, percent });
+    }
+    report.layers.push({ item: dataset.item, features: dataset.features.length, ...diagnostics });
+  }
+  console.log("AREA AUDIT", JSON.stringify(report));
 });
