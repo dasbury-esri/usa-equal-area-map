@@ -13,6 +13,8 @@ const setupOnly = process.argv.includes("--setup");
 const native = process.argv.includes("--native");
 const fourOnly = process.argv.includes("--four-only");
 const coldOnly = process.argv.includes("--cold-only");
+const webmap = process.env.COMPARISON_WEBMAP;
+const expectedLayers = webmap ? Number(process.env.COMPARISON_EXPECTED_LAYERS ?? 2) : null;
 if (!native) process.env.HEADLESS = "1";
 const selectedIds = process.env.COMPARISON_LAYERS?.split(",") ?? itemIds;
 const artifacts = mkdtempSync(join(tmpdir(), "usa-map-comparison-"));
@@ -23,7 +25,7 @@ const profileContext = profile ? await chromium.launchPersistentContext(profile,
 const browser = profileContext ? { context: profileContext, close: () => profileContext.close() } : await launchNativeBrowser();
 const runtimeMainFixture = process.env.COMPARISON_MAIN_RUNTIME === "1";
 const results = { mode: native ? "native Chrome" : "headless Chrome", base, runtimeMainFixture, profile,
-  layers: selectedIds, scale: 24000000, loads: [], captures: [], errors: [] };
+  layers: selectedIds, webmap, styleInterception: !webmap, scale: 24000000, loads: [], captures: [], errors: [] };
 
 async function instrument(page) {
   await page.addInitScript(ids => {
@@ -36,7 +38,7 @@ async function instrument(page) {
         return original.apply(this, args);
       };
     }
-  }, selectedIds);
+  }, webmap ? [] : selectedIds);
   const cdp = await page.context().newCDPSession(page);
   let requests = new Map();
   await cdp.send("Network.enable");
@@ -44,7 +46,8 @@ async function instrument(page) {
   cdp.on("Network.requestWillBeSent", event => {
     const parameters = new URLSearchParams(event.request.postData ?? new URL(event.request.url).search);
     requests.set(event.requestId, { url: event.request.url, method: event.request.method, urlLength: event.request.url.length,
-      kind: parameters.get("returnCountOnly") === "true" ? "count" : parameters.has("quantizationParameters") ? "geometry" : "other",
+      kind: parameters.get("returnCountOnly") === "true" ? "count" : parameters.get("returnIdsOnly") === "true" ? "ids"
+        : parameters.has("quantizationParameters") ? "geometry" : "other",
       started: event.timestamp, bytes: 0, cache: false });
   });
   cdp.on("Network.requestServedFromCache", event => { const request = requests.get(event.requestId); if (request) request.cache = true; });
@@ -70,7 +73,7 @@ async function instrument(page) {
       await cdp.send("Fetch.continueRequest", { requestId: event.requestId }).catch(() => {});
     }
   });
-  await cdp.send("Fetch.enable", { patterns: itemIds.map(id => ({ urlPattern: `*/items/${id}/data*`, requestStage: "Response" })) });
+  if (!webmap) await cdp.send("Fetch.enable", { patterns: itemIds.map(id => ({ urlPattern: `*/items/${id}/data*`, requestStage: "Response" })) });
   return { cdp, reset: () => { requests = new Map(); }, snapshot: () => {
     const http = [...requests.values()].filter(request => /^https?:/.test(request.url));
     return { requests: http.length, bytes: http.reduce((sum, request) => sum + request.bytes, 0), cacheHits: http.filter(request => request.cache).length,
@@ -90,7 +93,7 @@ async function settle(page, kind) {
     const state = await page.evaluate(() => ({ status: window.webmapCanvas.status,
       rendered: window.webmapCanvas.renderer?.layers.length, reports: window.webmapCanvas.reports }));
     assert.equal(state.status, "ready", JSON.stringify(state));
-    assert.equal(state.rendered, selectedIds.length, JSON.stringify(state));
+    assert.equal(state.rendered, expectedLayers ?? selectedIds.length, JSON.stringify(state));
   }
 }
 
@@ -172,7 +175,8 @@ try {
     const page = await browser.context.newPage();
     await page.setViewportSize({ width: 1920, height: 1080 });
     const network = await instrument(page);
-    const url = projection => `${base}${kind === "prototype" ? `experiments/webmap-canvas/?layers=${selectedIds.join(",")}&` : "?"}projection=${projection}`;
+    const selection = webmap ? `webmap=${webmap}` : `layers=${selectedIds.join(",")}`;
+    const url = projection => `${base}${kind === "prototype" ? `experiments/webmap-canvas/?${selection}&` : "?"}projection=${projection}`;
     for (const cache of setupOnly || native || coldOnly ? ["cold"] : ["cold", "warm"]) {
       if (cache === "cold") await network.cdp.send("Network.clearBrowserCache");
       network.reset();
@@ -182,6 +186,7 @@ try {
       const timing = await page.evaluate(kind => ({ firstCompleteMs: performance.now(), devicePixelRatio,
         contexts: kind === "prototype" ? window.getWebGLContextStats().live : window.getLiveWebGLContexts(),
         renderer: kind === "prototype" ? { layers: window.webmapCanvas.renderer.layers.length,
+          reports: window.webmapCanvas.reports, webmap: window.webmapCanvas.options.webmap,
           timings: window.webmapCanvas.timings,
           firstRenderMs: window.webmapCanvas.firstRenderMs,
           gpuCalls: window.__startupGpuCalls,
@@ -193,7 +198,7 @@ try {
             return sum + gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE);
           }, 0),
           uploadBytes: window.webmapCanvas.renderer.layers.reduce((sum, layer) => sum + layer.bytes, 0),
-          vertices: window.webmapCanvas.datasets.map(data => ({ item: data.layer.portalItem.id, count: data.count, vertices: data.vertices, pages: data.pages,
+          vertices: window.webmapCanvas.datasets.map(data => ({ item: data.layer.portalItem?.id ?? data.id, visible: data.visible, count: data.count, vertices: data.vertices, pages: data.pages,
             downloadTimings: data.downloadTimings })) } : null }), kind);
       const load = { kind, cache, ...timing, network: network.snapshot() };
       if (kind === "prototype") {
@@ -246,7 +251,7 @@ try {
     for (const cache of coldOnly ? ["cold"] : ["cold", "warm"]) {
       if (cache === "cold") await network.cdp.send("Network.clearBrowserCache");
       network.reset();
-      await page.goto(`${base}experiments/webmap-canvas/four.html?layers=${selectedIds.join(",")}`);
+      await page.goto(`${base}experiments/webmap-canvas/four.html?${webmap ? `webmap=${webmap}` : `layers=${selectedIds.join(",")}`}`);
       let timeout;
       try {
         await page.waitForFunction(() => [...document.querySelectorAll("iframe")].length === 4
@@ -272,7 +277,7 @@ try {
               : child.performance.timeOrigin + state.firstRenderMs - performance.timeOrigin,
             timings: state?.timings, gpuCalls: child.__startupGpuCalls, gpuGeometryBytes,
             declaredBytes: renderer?.layers.reduce((sum, layer) => sum + layer.bytes, 0), changedPixels, glError: gl?.getError(),
-            draws: renderer?.drawStats.calls, features: state?.datasets.map(data => ({ item: data.layer.portalItem.id, count: data.count,
+            draws: renderer?.drawStats.calls, features: state?.datasets.map(data => ({ item: data.layer.portalItem?.id ?? data.id, visible: data.visible, count: data.count,
               downloadTimings: data.downloadTimings })) };
         });
         return { observedMs: performance.now(), completeMs: children.every(child => child.status === "ready" && child.parentReadyMs !== null)
@@ -289,7 +294,7 @@ try {
       if (results.four.length > 1) assert.deepEqual(queries.map(query => query.url).sort(),
         results.four[0].network.queries.filter(query => query.kind === "geometry").map(query => query.url).sort());
       for (const child of load.children) {
-        assert.ok(child.status === "ready" && child.rendered === selectedIds.length && child.contexts.live === 1, JSON.stringify(child));
+        assert.ok(child.status === "ready" && child.rendered === (expectedLayers ?? selectedIds.length) && child.contexts.live === 1, JSON.stringify(child));
         assert.ok(child.changedPixels > 0);
         assert.equal(child.glError, 0);
         assert.equal(child.gpuGeometryBytes, child.declaredBytes);
