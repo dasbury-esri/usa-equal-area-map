@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { installWebGLProbe, measureWebGLContexts } from "./webgl-probe.mjs";
 
 const base = process.env.TEST_URL ?? "http://127.0.0.1:5173/usa-equal-area-map/";
 const artifacts = mkdtempSync(join(tmpdir(), "usa-vt-basemaps-"));
@@ -21,10 +22,10 @@ async function settle(page) {
 }
 
 async function snapshot(page) {
-  return page.evaluate(() => {
+  const contexts = await measureWebGLContexts(page);
+  return page.evaluate(({ live, reported }) => {
     const child = document.querySelector("#drawer-iframe").contentWindow;
-    const contexts = [...window.testContexts, ...child.testContexts].filter(context => !context.isContextLost());
-    return { live: contexts.length, reported: window.getLiveWebGLContexts(),
+    return { live, reported,
       views: window.testViews().map(view => ({ id: view.container.id, sr: view.spatialReference.toJSON(),
         center: view.center.toJSON(), scale: view.scale, resolution: view.resolution,
         width: view.width, height: view.height, basemap: view.map.basemap?.baseLayers.map(layer => ({ id: layer.id,
@@ -36,7 +37,7 @@ async function snapshot(page) {
       distinctMaps: new Set(window.testViews().map(view => view.map)).size,
       distinctLayers: new Set(window.testViews().flatMap(view => view.map.layers.toArray())).size,
     };
-  });
+  }, contexts);
 }
 
 try {
@@ -45,17 +46,7 @@ try {
     for (const mode of ["baseline", "tiles", "overview"]) {
       const label = `${viewport.width}x${viewport.height}-${mode}`;
       const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
-      await context.addInitScript(() => {
-        window.testContexts = new Set();
-        for (const prototype of [HTMLCanvasElement.prototype, globalThis.OffscreenCanvas?.prototype].filter(Boolean)) {
-          const original = prototype.getContext;
-          prototype.getContext = function(...args) {
-            const result = original.apply(this, args);
-            if (result instanceof WebGLRenderingContext || result instanceof WebGL2RenderingContext) window.testContexts.add(result);
-            return result;
-          };
-        }
-      });
+      await context.addInitScript(installWebGLProbe);
       const page = await context.newPage();
       const requests = [];
       const errors = [];
@@ -81,6 +72,7 @@ try {
       assert.equal(initial.distinctMaps, 7);
       assert.equal(initial.distinctLayers, raw.operationalLayers.length * 7);
       assert.equal(initial.live, initial.reported.live);
+      assert.equal(initial.live, initial.views.length);
       for (const view of initial.views) {
         assert.deepEqual(view.layers.map(layer => layer.id), raw.operationalLayers.map(layer => layer.id));
         for (const layer of view.layers) {

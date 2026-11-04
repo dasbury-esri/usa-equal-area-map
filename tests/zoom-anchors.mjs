@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import defaults from "../src/view-defaults.js";
+import { installWebGLProbe, measureWebGLContexts } from "./webgl-probe.mjs";
 
 const base = process.env.TEST_URL ?? "http://127.0.0.1:5173/usa-equal-area-map/";
 const anchors = {
@@ -19,10 +20,11 @@ const cases = [
   ["lambert-globes", "?projection=lambert&overview=globes"], ["albers-globes", "?projection=albers&overview=globes"],
   ["tiles", `?projection=albers${sources}`], ["tiles-overview", `?projection=albers${sources}&overviewBasemap=conus`],
 ].filter(([name]) => !process.env.ZOOM_CASE || process.env.ZOOM_CASE === name);
-const baselines = JSON.parse(readFileSync(new URL("../session-logs/artifacts/2026-11-04-vt-basemaps/matrix.json", import.meta.url)));
+const baselines = process.env.ZOOM_BASELINE ? JSON.parse(readFileSync(process.env.ZOOM_BASELINE)) : null;
 const artifacts = mkdtempSync(join(tmpdir(), "usa-zoom-anchors-"));
 const results = [];
 console.log(`Artifacts: ${artifacts}`);
+console.log(`Historical fit comparison: ${baselines ? process.env.ZOOM_BASELINE : "not requested (set ZOOM_BASELINE to an external matrix.json)"}`);
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 
 async function zoom(page, scale) {
@@ -45,11 +47,9 @@ async function offsets(page, progress = 1, exclude = null) {
 }
 
 async function nativeCounts(page) {
-  return page.evaluate(() => {
-    const child = document.querySelector("#drawer-iframe").contentWindow;
-    return { live: [...window.zoomContexts, ...child.zoomContexts].filter(context => !context.isContextLost()).length,
-      created: window.getLiveWebGLContexts().created };
-  });
+  const result = await measureWebGLContexts(page);
+  assert.equal(result.live, result.reported.live);
+  return { live: result.live, created: result.reported.created };
 }
 
 try {
@@ -57,21 +57,9 @@ try {
     for (const [name, query] of cases) {
       const label = `${viewport.width}x${viewport.height}-${name}`;
       const context = await browser.newContext({ viewport });
+      await context.addInitScript(installWebGLProbe);
       await context.addInitScript(() => {
-        window.zoomContexts = new Set();
-        window.zoomCanvasContexts = new WeakMap();
         window.zoomLosses = [];
-        for (const prototype of [HTMLCanvasElement.prototype, globalThis.OffscreenCanvas?.prototype].filter(Boolean)) {
-          const original = prototype.getContext;
-          prototype.getContext = function(...args) {
-            const result = original.apply(this, args);
-            if (result instanceof WebGLRenderingContext || result instanceof WebGL2RenderingContext) {
-              window.zoomContexts.add(result);
-              window.zoomCanvasContexts.set(this, result);
-            }
-            return result;
-          };
-        }
         document.addEventListener("webglcontextlost", event => window.zoomLosses.push(event.isTrusted), true);
       });
       const page = await context.newPage();
@@ -113,7 +101,8 @@ try {
             new window.mainView.spatialReference.constructor(view.spatialReference.toJSON())).toJSON()]));
       }, anchors);
       const counts = await nativeCounts(page);
-      if (["albers", "tiles", "tiles-overview"].includes(name)) {
+      assert.equal(counts.live, initial.length, "Settled contexts must equal rendering views");
+      if (baselines && ["albers", "tiles", "tiles-overview"].includes(name)) {
         const prior = baselines.find(record => record.label === `${viewport.width}x${viewport.height}-${name === "albers" ? "baseline" : name === "tiles" ? "tiles" : "overview"}`);
         for (const view of initial) {
           const original = prior.initial.views.find(original => original.id === view.id);
@@ -185,7 +174,7 @@ try {
           const child = document.querySelector("#drawer-iframe").contentWindow;
           const view = child.akView;
           window.zoomRecovery = window.zoomViews().map(view => ({ center: view.center.toJSON(), scale: view.scale }));
-          const context = [...view.container.querySelectorAll("canvas")].map(canvas => child.zoomCanvasContexts.get(canvas))
+          const context = [...view.container.querySelectorAll("canvas")].map(canvas => child.webglProbe.canvasContexts.get(canvas)?.deref())
             .find(context => context && !context.isContextLost());
           context.getExtension("WEBGL_lose_context").loseContext();
         });

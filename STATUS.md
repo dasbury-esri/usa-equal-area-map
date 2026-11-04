@@ -16,6 +16,15 @@ extra:
 
 # USA Equal Area Map
 
+## Branch Cleanup
+
+The airport repair is also isolated on local `fix/airport-zoom-recentering`, based
+directly on main, with eight passing browser cases and 578 passing build budgets.
+No basemap experiment code or dependencies were brought into that branch.
+Cleanup is local only; no history rewrite or deployment. See
+[session 0023](session-logs/2026-11-04-0023-session-log.md) for context ownership,
+verified external evidence, log renumbering and standalone-branch provenance.
+
 ## Local Airport Recentering Repair
 
 The responsive-framing default bypassed the airport zoom watcher. The local
@@ -24,7 +33,7 @@ responsive home center/scale, retaining manual pans, lazy initialization and
 navigation recovery. Twelve projection/layout/viewport cases pass, along with
 lint and the production build. Tiled mouse-wheel zoom remains a separate observed
 limitation, reproduced with the anchor watcher disabled. No publication or main
-branch change was made. See [session 0020](session-logs/2026-11-04-0020-session-log.md).
+branch change was made. See [session 0022](session-logs/2026-11-04-0022-session-log.md).
 
 ## Unpublished Vector-Tile Experiment
 
@@ -33,14 +42,20 @@ URL-selected operational WebMaps are cloned into independent per-pane Maps with
 one synchronized Layer List. Albers-only per-pane vector basemaps validate their
 loaded tile projection numbers, permit documented NAD83/WGS84 differences and
 optionally supply the CONUS-projected overview. Lambert ignores basemap options.
-Both requested viewport sizes preserve CONUS fit and nine live native WebGL
-contexts. Thirty-two exact-scale city cases record sampled shoreline offsets;
+Both requested viewport sizes preserve CONUS fit and seven settled native WebGL
+contexts. The former nine-context result included two temporary SDK capability
+probes retained by the test harness; weak instrumentation corrects that count.
+Thirty-two exact-scale city cases record sampled shoreline offsets;
 Honolulu reaches 6.32px at 1:500,000, versus less than 0.012px for the separate
 datum-only comparison. Hawaii's coarse level-0 geometry and limited coverage,
 the unchanged Alaska panhandle clipping and overview coverage cap remain limits.
-Build and 621 chunk budgets pass. See [session 0019](session-logs/2026-11-04-0019-session-log.md)
+Build and 621 chunk budgets pass. See [session 0021](session-logs/2026-11-04-0021-session-log.md)
 for retained screenshots, request counts, native tests and measurement caveats.
 The owner's `next_action` is unchanged.
+
+Evidence is archived outside Git in the sibling `usa-equal-area-map-evidence`
+directory, with links and a SHA-256 manifest in the session logs. Before allocating
+another session number, follow the fetched cross-branch check in [AGENTS.md](AGENTS.md).
 
 ## Local Development
 

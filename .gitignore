@@ -12,6 +12,9 @@ yarn-error.log*
 # Build output
 dist/
 
+# Browser evidence is archived outside Git
+session-logs/artifacts/
+
 # macOS system files
 .DS_Store
 .AppleDouble

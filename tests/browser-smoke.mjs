@@ -3,23 +3,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchNativeBrowser } from "./native-browser.mjs";
+import { installWebGLProbe, measureWebGLContexts } from "./webgl-probe.mjs";
 
 const base = process.env.TEST_URL ?? "http://127.0.0.1:5173/usa-equal-area-map/";
 const artifacts = mkdtempSync(join(tmpdir(), "usa-map-browser-"));
 const browser = await launchNativeBrowser();
-await browser.context.addInitScript(() => {
-  window.nativeWebGLContexts = new Set();
-  for (const prototype of [HTMLCanvasElement.prototype, globalThis.OffscreenCanvas?.prototype].filter(Boolean)) {
-    const original = prototype.getContext;
-    prototype.getContext = function(...args) {
-      const context = original.apply(this, args);
-      if (context instanceof WebGLRenderingContext || context instanceof WebGL2RenderingContext) {
-        window.nativeWebGLContexts.add(context);
-      }
-      return context;
-    };
-  }
-});
+await browser.context.addInitScript(installWebGLProbe);
 console.log(`Artifacts: ${artifacts}`);
 
 async function settled(page) {
@@ -44,13 +33,8 @@ async function settled(page) {
 }
 
 async function contextCount(page) {
-  const result = await page.evaluate(() => {
-    const child = document.querySelector("#drawer-iframe").contentWindow;
-    const captured = [...window.nativeWebGLContexts, ...(child.nativeWebGLContexts ?? [])];
-    return { nativeLive: captured.filter(context => !context.isContextLost()).length,
-      reported: window.getLiveWebGLContexts() };
-  });
-  assert.equal(result.reported.live, result.nativeLive, "App count must agree with independently captured native contexts");
+  const result = await measureWebGLContexts(page);
+  assert.equal(result.reported.live, result.live, "App count must agree with independently captured native contexts");
   return result.reported;
 }
 
