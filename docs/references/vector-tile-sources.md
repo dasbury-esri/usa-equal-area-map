@@ -150,7 +150,7 @@ zoom-dependent paint/layout, glyphs, sprites, line joins/caps, patterns, labels
 and collision placement are outside the current simple-symbol renderer.
 Implement an explicit supported style subset or adopt a suitable renderer;
 reject unsupported styles rather than silently substituting simple fills.
-See [ADR-0002](adr/ADR-0002-single-canvas-webmap-prototype.md).
+See [ADR-0002](../adr/ADR-0002-single-canvas-webmap-prototype.md).
 
 [blog]: https://www.esri.com/arcgis-blog/products/mapping/mapping/beyond-web-mercator-projected-basemaps-revisited
 [ak-map]: https://www.arcgis.com/home/item.html?id=9fcd343a29bf4162953a3b149d282521

@@ -147,8 +147,12 @@ export async function loadFeatures(layers, report, checkPublicItem, options = {}
     entry.title = title;
     try {
       if (layer.featureReduction || layer.effect || layer.featureEffect) throw new Error("Unsupported aggregation or effect");
-      if (layer.blendMode && layer.blendMode !== "normal") throw new Error(`Unsupported blend mode: ${layer.blendMode}`);
       entry.renderer = compileRenderer(layer.renderer);
+      entry.blendMode = layer.blendMode ?? "normal";
+      if (entry.blendMode !== "normal" && !(entry.blendMode === "multiply" && entry.renderer.fillOnly)) {
+        entry.renderer = null;
+        throw new Error(`Unsupported blend mode for these symbols: ${entry.blendMode}`);
+      }
     } catch (error) {
       if ([401, 403, 498, 499].includes(error.details?.httpStatus ?? error.details?.raw?.code)
         || /token|credential|unauthoriz|authenticat/i.test(error.message)) throw error;
@@ -172,21 +176,23 @@ export async function loadFeatures(layers, report, checkPublicItem, options = {}
       return query;
     });
     const where = [...new Set(queries.map(query => `(${query.where})`))].sort().join(" OR ");
+    const needsMembership = members.length > 1 && !queries.every(query => query.where.replace(/\s/g, "") === "1=1");
     const shared = { id: layer.id, url, objectIdField: layer.objectIdField, sourceJSON: layer.sourceJSON,
       capabilities: layer.capabilities, definitionExpression: where, createQuery: () => queries[0].clone?.() ?? structuredClone(queries[0]),
       queryFeatureCount: query => options.queryFeatures ? layer.queryFeatureCount(query) : rest.executeForCount(url, query),
       queryObjectIds: query => options.queryFeatures ? layer.queryObjectIds(query) : rest.executeForIds(url, query) };
     try {
       const [memberships, data] = await Promise.all([
-        Promise.all(members.map((entry, index) => entry.layer.queryObjectIds(queries[index].clone?.() ?? structuredClone(queries[index])))),
+        needsMembership ? Promise.all(members.map((entry, index) => entry.layer.queryObjectIds(queries[index].clone?.() ?? structuredClone(queries[index])))) : null,
         download(shared, members.flatMap(entry => entry.renderer?.fields ?? [])),
       ]);
       const byId = new Map(data.features.map(feature => [feature.attributes[layer.objectIdField], feature]));
-      const union = new Set(memberships.flat());
+      const selectedIds = memberships ?? members.map(() => [...byId.keys()]);
+      const union = new Set(selectedIds.flat());
       if (union.size !== byId.size || [...union].some(id => !byId.has(id))) throw new Error("Layer membership changed during shared download");
-      if (memberships.some(ids => new Set(ids).size !== ids.length)) throw new Error("Duplicate layer membership IDs");
+      if (selectedIds.some(ids => new Set(ids).size !== ids.length)) throw new Error("Duplicate layer membership IDs");
       members.forEach((entry, index) => {
-        const ids = memberships[index];
+        const ids = selectedIds[index];
         const features = ids.map(id => byId.get(id));
         completed.set(entry, { ...entry, ...data, id: entry.layer.id, features, count: features.length,
           vertices: features.reduce((sum, feature) => sum + vertexCount(feature.geometry), 0), sharedDownload: data });

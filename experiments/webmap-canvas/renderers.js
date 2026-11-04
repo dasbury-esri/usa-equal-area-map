@@ -44,7 +44,7 @@ export function compileRenderer(renderer) {
     return renderer.classBreakInfos?.find((info, index) => (index === 0 ? value >= info.minValue : value > info.minValue)
       && value <= info.maxValue)?.symbol ?? renderer.defaultSymbol;
   };
-  return { fields, symbolFor };
+  return { fields, symbolFor, fillOnly: symbols.filter(Boolean).every(symbol => symbol.type === "simple-fill") };
 }
 
 export function rgba(color, opacity = 1) {

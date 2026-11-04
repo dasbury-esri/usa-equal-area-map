@@ -4,9 +4,10 @@ import { projections } from "../../src/projections.js";
 import { MIN_SCALE, MAX_SCALE, PANE_NAMES, resolveSwipe } from "./config.js";
 import { visibleAtScale } from "./data.js";
 import { prepareGeometry, visibleRanges } from "./geometry.js";
+import { GeometryPreparation } from "./preparation.js";
 import { projectionGLSL, projectionParameters, projectChunkBounds, createProgram, setProjection } from "./projection.js";
 
-export const HOME_CENTERS = Object.freeze({ conus: [-97, 38], ak: [-159, 62], hi: [-157, 20.7], pr: [-66.2, 18.2], gu: [144.8, 13.45] });
+export const HOME_CENTERS = Object.freeze({ conus: [-97, 38], ak: [-159, 62], hi: [-157, 20.7], pr: [-66.2, 18.2], gu: [144.8, 13.45], as: [-170.7, -14.28] });
 const metersPerPixel = scale => scale * 0.0254 / 96;
 
 const vertexSource = `#version 300 es
@@ -92,6 +93,7 @@ export class CanvasRenderer {
     this.options = options;
     this.scale = options.scale;
     this.report = report;
+    this.preparation = options.prepare === "inline" ? null : new GeometryPreparation();
     this.layers = [];
     this.culling = true;
     this.swipeSelection = options.swipe;
@@ -101,6 +103,13 @@ export class CanvasRenderer {
     this.gl = canvas.getContext("webgl2", { alpha: false, antialias: true, stencil: true });
     if (!this.gl) throw new Error("WebGL2 is unavailable.");
     this.program = createProgram(this.gl, vertexSource, fragmentSource);
+    this.blendProgram = createProgram(this.gl, `#version 300 es
+  void main() { gl_Position = vec4(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0, 0.0, 1.0); }`, `#version 300 es
+  precision highp float;
+  uniform sampler2D uLayer;
+  uniform float uOpacity;
+  out vec4 color;
+  void main() { color = texelFetch(uLayer, ivec2(gl_FragCoord.xy), 0) * uOpacity; }`);
     this.uniforms = Object.fromEntries(["uResolution", "uCenter", "uViewport", "uMode", "uWidth", "uSize", "uColor", "uOutline"]
       .map(name => [name, this.gl.getUniformLocation(this.program, name)]));
     this.vao = this.gl.createVertexArray();
@@ -122,12 +131,15 @@ export class CanvasRenderer {
       const before = { ...budget };
       let buffer;
       try {
-        const mesh = await prepareGeometry(dataset, budget);
+        const input = dataset.blendMode === "multiply" ? { ...dataset, opacity: 1 } : dataset;
+        const prepared = this.preparation ? await this.preparation.prepare(input, budget, this.panes) : null;
+        const mesh = prepared?.mesh ?? await prepareGeometry(input, budget);
+        if (prepared) { Object.assign(budget, prepared.budget); dataset.geometryDiagnostics = prepared.diagnostics; }
         buffer = this.gl.createBuffer();
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, mesh.values, this.gl.STATIC_DRAW);
         if (this.gl.getError() !== this.gl.NO_ERROR) throw new Error("GPU upload failed");
-        projectChunkBounds(mesh.values, mesh.draws.flatMap(draw => draw.chunks), this.panes);
+        if (!prepared) projectChunkBounds(mesh.values, mesh.draws.flatMap(draw => draw.chunks), this.panes);
         layers.push({ dataset, buffer, draws: mesh.draws, instances: mesh.instances, bytes: mesh.values.byteLength });
       } catch (error) {
         if (buffer) this.gl.deleteBuffer(buffer);
@@ -157,15 +169,37 @@ export class CanvasRenderer {
     this.frame = requestAnimationFrame(() => { this.frame = null; this.draw(); });
   }
 
+  blendTarget(width, height) {
+    const gl = this.gl;
+    if (!this.layerTarget) this.layerTarget = { framebuffer: gl.createFramebuffer(), texture: gl.createTexture(), stencil: gl.createRenderbuffer() };
+    const target = this.layerTarget;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+    if (target.width !== width || target.height !== height) {
+      gl.bindTexture(gl.TEXTURE_2D, target.texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, target.texture, 0);
+      gl.bindRenderbuffer(gl.RENDERBUFFER, target.stencil);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, width, height);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, target.stencil);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error("Multiply framebuffer is incomplete");
+      Object.assign(target, { width, height });
+    }
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+  }
+
   draw() {
     const gl = this.gl;
     if (gl.isContextLost()) return;
     const started = performance.now();
-    this.drawStats = { calls: 0, instances: 0, availableInstances: 0 };
+    this.drawStats = { calls: 0, instances: 0, availableInstances: 0, layers: {} };
     const ratio = devicePixelRatio;
     const width = Math.round(innerWidth * ratio);
     const height = Math.round(innerHeight * ratio);
     if (this.canvas.width !== width || this.canvas.height !== height) { this.canvas.width = width; this.canvas.height = height; }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.SCISSOR_TEST);
     gl.disable(gl.STENCIL_TEST);
     gl.clearColor(0.929, 0.957, 0.961, 1);
@@ -195,6 +229,7 @@ export class CanvasRenderer {
         const split = Math.round(rect.width * this.swipeFraction);
         gl.scissor(rect.x + (side === 1 ? split : 0), rect.y,
           side === 0 ? split : side === 1 ? rect.width - split : rect.width, rect.height);
+        if (layer.dataset.blendMode === "multiply") this.blendTarget(width, height);
         gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
         for (const draw of layer.draws) {
           if (!draw.count) continue;
@@ -225,9 +260,22 @@ export class CanvasRenderer {
             }
             gl.drawArraysInstanced(draw.mode === 0 ? gl.TRIANGLES : gl.TRIANGLE_STRIP, 0, draw.mode === 0 ? 3 : 4, range.count);
             this.drawStats.calls++;
+            this.drawStats.layers[layer.dataset.id] = (this.drawStats.layers[layer.dataset.id] ?? 0) + 1;
             this.drawStats.instances += range.count;
           }
           gl.disable(gl.STENCIL_TEST);
+        }
+        if (layer.dataset.blendMode === "multiply") {
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          gl.useProgram(this.blendProgram);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, this.layerTarget.texture);
+          gl.uniform1i(gl.getUniformLocation(this.blendProgram, "uLayer"), 0);
+          gl.uniform1f(gl.getUniformLocation(this.blendProgram, "uOpacity"), layer.dataset.opacity);
+          gl.blendFuncSeparate(gl.DST_COLOR, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+          gl.useProgram(this.program);
+          gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
         }
       }
       this.updateScaleBar(pane, bounds);

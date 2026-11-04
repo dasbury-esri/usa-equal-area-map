@@ -6,6 +6,25 @@
 
 ## Owner Map and Tile Follow-Up
 
+Current follow-up: [session 0025](../../session-logs/2026-11-04-0025-session-log.md)
+supersedes the multiply rejection and Terraformer-based area reference below.
+Multiply fills use isolated premultiplied layer composition, with native overlap
+and opacity pixel checks. Owner timing requires the world and US/outlying fill
+layers to draw. Singleton/all-unfiltered groups skip membership queries: 13
+requests per embed instead of 15. Independent exact-coordinate area finds 26
+features above 0.1% triangle-area error, all enumerated in the session log.
+American Samoa is optional and uses the CONUS source; Pago Pago passes the
+sampled one-pixel maximum at 1:1000000 but not 1:500000.
+
+Measured preparation after those changes was 2.25s standalone and 3.88-5.35s
+per child, satisfying the owner's worker condition. One worker per embed now
+tessellates and computes bounds, transferring buffers for main-thread upload.
+Native startup is 4.85s/2.47s standalone and 5.10s/3.55s for four (cold/warm);
+preparation remains above one second. Byte-parity and rejected-job recovery
+contracts pass. The owner subsequently authorized a local `[skip ci]` commit;
+no push, merge or deployment is authorized. Concurrent Mercator/Adak additions
+are preserved separately.
+
 Recorded 2026-11-04 22:56:06+00:00[UTC].
 [Session 0020](../../session-logs/2026-11-04-0020-session-log.md) records four
 separately measured local commits: service-sized concurrent pages, shared
@@ -349,7 +368,7 @@ Artifacts: main headless `usa-map-comparison-3Yojhm`, prototype headless
 
 ## Step 7: Public Vector Tile Research
 
-[Source inventory](../vector-tile-sources.md) records public item IDs, owners,
+[Source inventory](../references/vector-tile-sources.md) records public item IDs, owners,
 service SR/WKT, origins, LODs and exact-match decisions. Skinner's Alaska/CONUS
 services and the Hawaii candidate match pane Albers parameters but use NAD83,
 not WGS84. Public LAEA sources have different centers. No inspected source is

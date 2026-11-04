@@ -5,7 +5,7 @@ import { chromium } from "playwright";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchNativeBrowser } from "./native-browser.mjs";
-import { applyComparisonStyle, base as devBase, itemIds } from "./webmap-canvas-browser.mjs";
+import { applyComparisonStyle, base as devBase, itemIds, verifyMultiply } from "./webmap-canvas-browser.mjs";
 import { measureAccuracy } from "./webmap-canvas-accuracy.mjs";
 
 const base = process.env.COMPARISON_BASE ?? devBase;
@@ -14,7 +14,7 @@ const native = process.argv.includes("--native");
 const fourOnly = process.argv.includes("--four-only");
 const coldOnly = process.argv.includes("--cold-only");
 const webmap = process.env.COMPARISON_WEBMAP;
-const expectedLayers = webmap ? Number(process.env.COMPARISON_EXPECTED_LAYERS ?? 2) : null;
+const expectedLayers = webmap ? Number(process.env.COMPARISON_EXPECTED_LAYERS ?? 4) : null;
 if (!native) process.env.HEADLESS = "1";
 const selectedIds = process.env.COMPARISON_LAYERS?.split(",") ?? itemIds;
 const artifacts = mkdtempSync(join(tmpdir(), "usa-map-comparison-"));
@@ -94,6 +94,13 @@ async function settle(page, kind) {
       rendered: window.webmapCanvas.renderer?.layers.length, reports: window.webmapCanvas.reports }));
     assert.equal(state.status, "ready", JSON.stringify(state));
     assert.equal(state.rendered, expectedLayers ?? selectedIds.length, JSON.stringify(state));
+    if (webmap) await page.evaluate(() => {
+      const renderer = window.webmapCanvas.renderer;
+      for (const title of ["World Countries Generalized", "United States and Outlying Areas"]) {
+        const layer = renderer.layers.find(candidate => candidate.dataset.title === title);
+        if (!layer || !renderer.drawStats.layers[layer.dataset.id]) throw new Error(`Required owner layer not drawn: ${title}`);
+      }
+    });
   }
 }
 
@@ -188,6 +195,7 @@ try {
         renderer: kind === "prototype" ? { layers: window.webmapCanvas.renderer.layers.length,
           reports: window.webmapCanvas.reports, webmap: window.webmapCanvas.options.webmap,
           timings: window.webmapCanvas.timings,
+          preparation: window.webmapCanvas.renderer.preparation?.stats,
           firstRenderMs: window.webmapCanvas.firstRenderMs,
           gpuCalls: window.__startupGpuCalls,
           symbolDraws: window.webmapCanvas.renderer.layers.reduce((sum, layer) => sum + layer.draws.length, 0),
@@ -202,6 +210,8 @@ try {
             downloadTimings: data.downloadTimings })) } : null }), kind);
       const load = { kind, cache, ...timing, network: network.snapshot() };
       if (kind === "prototype") {
+        assert.equal(page.workers().filter(worker => worker.url().includes("geometry-worker")).length, 1);
+        assert.equal(load.renderer.preparation.workers, 1);
         assert.deepEqual(load.renderer.gpuCalls, { getBufferSubData: 0, copyBufferSubData: 0 });
         assert.equal(load.renderer.gpuGeometryBytes, load.renderer.uploadBytes);
         const queries = load.network.queries.filter(query => query.kind === "geometry");
@@ -241,6 +251,7 @@ try {
       }
     }
     if (native && kind === "prototype") results.accuracy = await measureAccuracy(page);
+    if (webmap && kind === "prototype") results.multiplyPixels = await verifyMultiply(page);
     await page.close();
   }
   if (!setupOnly && !native && !process.argv.includes("--no-four")) {
@@ -272,10 +283,15 @@ try {
             for (let index = 0; index < pixels.length; index += 4) if (Math.abs(pixels[index] - 237) > 3) changedPixels++;
           }
           return { status: state?.status, rendered: renderer?.layers.length, reports: state?.reports,
+            requiredDrawn: ["World Countries Generalized", "United States and Outlying Areas"].map(title => {
+              const layer = renderer?.layers.find(candidate => candidate.dataset.title === title);
+              return Boolean(layer && renderer.drawStats.layers[layer.dataset.id]);
+            }),
             width: child.innerWidth, height: child.innerHeight, contexts: child.getWebGLContextStats?.(),
             firstRenderMs: state?.firstRenderMs, parentReadyMs: state?.firstRenderMs === undefined ? null
               : child.performance.timeOrigin + state.firstRenderMs - performance.timeOrigin,
             timings: state?.timings, gpuCalls: child.__startupGpuCalls, gpuGeometryBytes,
+            preparation: renderer?.preparation?.stats,
             declaredBytes: renderer?.layers.reduce((sum, layer) => sum + layer.bytes, 0), changedPixels, glError: gl?.getError(),
             draws: renderer?.drawStats.calls, features: state?.datasets.map(data => ({ item: data.layer.portalItem?.id ?? data.id, visible: data.visible, count: data.count,
               downloadTimings: data.downloadTimings })) };
@@ -288,12 +304,15 @@ try {
       console.log("FOUR", JSON.stringify(load));
       assert.equal(timeout, undefined, JSON.stringify(load));
       assert.equal(load.children.length, 4);
+      assert.equal(page.workers().filter(worker => worker.url().includes("geometry-worker")).length, 4);
       const queries = load.network.queries.filter(query => query.kind === "geometry");
       assert.ok(queries.length >= selectedIds.length * 4);
       assert.ok(queries.every(query => query.method === "GET"));
       if (results.four.length > 1) assert.deepEqual(queries.map(query => query.url).sort(),
         results.four[0].network.queries.filter(query => query.kind === "geometry").map(query => query.url).sort());
       for (const child of load.children) {
+        if (webmap) assert.deepEqual(child.requiredDrawn, [true, true]);
+        assert.equal(child.preparation.workers, 1);
         assert.ok(child.status === "ready" && child.rendered === (expectedLayers ?? selectedIds.length) && child.contexts.live === 1, JSON.stringify(child));
         assert.ok(child.changedPixels > 0);
         assert.equal(child.glError, 0);

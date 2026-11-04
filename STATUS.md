@@ -55,7 +55,7 @@ artifact remain. Pan cadence is about 117ms versus 16.7ms for MapViews. The
 four-iframe comparison harness is unresolved; the owner approved recording that
 limitation and continuing. All 649 build budgets and built-entry smoke checks
 pass. This is an unpublished investigation, not an accepted replacement.
-Step 7 records [public vector-tile sources](docs/vector-tile-sources.md).
+Step 7 records [public vector-tile sources](docs/references/vector-tile-sources.md).
 Inspected Albers candidates differ by datum; LAEA candidates differ by center.
 No exact complete-CRS match is established. All numbered work is recorded, with
 the documented rendering/performance/iframe acceptance gaps still open.
@@ -117,6 +117,18 @@ authorized pushing these four follow-up commits and a `[skip ci]` session
 closeout to `prototype/webmap-canvas` only. No merge or deployment is authorized.
 
 ## Local Development
+
+Latest prototype follow-up: [session 0025](session-logs/2026-11-04-0025-session-log.md).
+Multiply fill layers now composite correctly with opacity. Owner startup is
+gated on drawing both World Countries Generalized and US and Outlying Areas:
+with conditional worker preparation, 4.85s cold / 2.47s warm standalone and
+5.10s / 3.55s with four embeds. Membership queries fall from 15 to 13 requests
+per embed (60 to 52 for four). Preparation remains about 1.35-1.60s per embed.
+The independent exact-ring audit replaces the Terraformer reference and lists
+26 real area discrepancies above 0.1%. American Samoa uses CONUS Albers tiles;
+Pago Pago maximum offsets are 0.974px at 1:1000000 and 1.947px at 1:500000.
+The source inventory now lives in `docs/references/`. These changes are local;
+the previous session's push authorization does not authorize another push.
 
 Use one repository-backed dev instance at
 `http://127.0.0.1:5173/usa-equal-area-map/`. Start it with `npm run dev` from

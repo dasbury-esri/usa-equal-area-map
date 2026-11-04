@@ -28,6 +28,38 @@ export async function comparisonStyles(page) {
   }
 }
 
+export async function verifyMultiply(page) {
+  const checks = await page.evaluate(async () => {
+    const renderer = window.webmapCanvas.renderer, gl = renderer.gl, pane = renderer.panes.find(pane => pane.id === "conus");
+    renderer.onNavigate = undefined;
+    pane.center = pane.parameters.converter.forward([-97, 38]);
+    const read = () => {
+      renderer.draw();
+      const bounds = pane.element.getBoundingClientRect(), pixel = new Uint8Array(4);
+      gl.readPixels(Math.floor((bounds.x + bounds.width / 2) * devicePixelRatio),
+        Math.floor((innerHeight - bounds.y - bounds.height / 2) * devicePixelRatio), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      return [...pixel];
+    };
+    await renderer.load([]);
+    const backdrop = read(), rows = [];
+    for (const [opacity, alpha] of [[1, 1], [0.5, 1], [0.5, 0.5]]) {
+      const symbol = { type: "simple-fill", style: "solid", color: [128, 64, 192, alpha] };
+      const feature = { attributes: {}, geometry: { type: "polygon", rings: [[[-98, 37], [-98, 39], [-96, 39], [-96, 37], [-98, 37]]] } };
+      await renderer.load([{ id: "multiply-probe", title: "multiply-probe", blendMode: "multiply", opacity, visible: true, ranges: [],
+        features: [feature, feature], renderer: { symbolFor: () => symbol } }]);
+      const effectiveAlpha = (1 - (1 - alpha) ** 2) * opacity;
+      rows.push({ opacity, alpha, actual: read(), expected: backdrop.slice(0, 3).map((color, index) =>
+        color * (1 - effectiveAlpha + symbol.color[index] / 255 * effectiveAlpha)), error: gl.getError() });
+    }
+    return rows;
+  });
+  for (const row of checks) {
+    assert.equal(row.error, 0);
+    row.expected.forEach((value, index) => assert.ok(Math.abs(row.actual[index] - value) <= 2, JSON.stringify(row)));
+  }
+  return checks;
+}
+
 async function run() {
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   try {

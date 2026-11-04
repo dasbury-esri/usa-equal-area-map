@@ -11,7 +11,36 @@ import { continuousPath, densifyPath, polygonParts, prepareGeometry, triangulate
 import { generalizationForScale, needsRefresh, queryFootprint, splitBounds } from "../experiments/webmap-canvas/coverage.js";
 import { createTileLoader, decodeTile, sourceProjection, tileCoordinate } from "../experiments/webmap-canvas/tiles.js";
 import { PbfWriter } from "pbf";
+import { Worker as NodeWorker } from "node:worker_threads";
+import { preparationSnapshot } from "../experiments/webmap-canvas/preparation.js";
 
+test("worker preparation matches inline mesh, bounds and budgets byte for byte", { timeout: 10000 }, async () => {
+  const dataset = { opacity: 0.6, features: [{ attributes: {}, geometry: { type: "polygon",
+    rings: [[[0, 0], [0, 2], [2, 2], [2, 0], [0, 0]], [[0.5, 0.5], [1, 0.5], [1, 1], [0.5, 1], [0.5, 0.5]]] } }],
+    renderer: { symbolFor: () => ({ type: "simple-fill", color: [128, 64, 192, 0.5], outline: { type: "simple-line", color: [0, 0, 0, 1], width: 1 } }) } };
+  const definition = projections.albers.conus, budget = { vertices: 0, instances: 0 };
+  const inline = await prepareGeometry(dataset, budget);
+  projectChunkBounds(inline.values, inline.draws.flatMap(draw => draw.chunks), [{ id: "conus", parameters: projectionParameters(definition) }]);
+  const url = new URL("../experiments/webmap-canvas/geometry-worker.js", import.meta.url).href;
+  const worker = new NodeWorker(`const {parentPort}=require('node:worker_threads');
+globalThis.self={postMessage:(...args)=>parentPort.postMessage(...args)};
+import(${JSON.stringify(url)}).then(()=>parentPort.on('message',data=>self.onmessage({data})));`, { eval: true });
+  try {
+    const reply = new Promise((resolve, reject) => { worker.once("message", resolve); worker.once("error", reject); });
+    worker.postMessage({ id: 1, dataset: preparationSnapshot(dataset), budget: { vertices: 0, instances: 0 }, panes: [{ id: "conus", definition }] });
+    const result = await reply;
+    assert.equal(result.error, undefined);
+    assert.deepEqual(result.mesh, inline); assert.deepEqual(result.budget, budget);
+    assert.deepEqual(result.diagnostics, dataset.geometryDiagnostics);
+    for (const [id, vertices] of [[2, 6500001], [3, 0]]) {
+      const next = new Promise((resolve, reject) => { worker.once("message", resolve); worker.once("error", reject); });
+      worker.postMessage({ id, dataset: preparationSnapshot(dataset), budget: { vertices, instances: 0 }, panes: [{ id: "conus", definition }] });
+      const value = await next;
+      if (vertices) assert.match(value.error, /budget exceeded/);
+      else assert.deepEqual(value.mesh, inline);
+    }
+  } finally { await worker.terminate(); }
+});
 test("MVT buffers clip without artificial coastline edges, preserve holes and own edges once", () => {
   const writer = new PbfWriter();
   const fixtures = [
@@ -63,6 +92,7 @@ test("tile source CRS and tile grid are independent of the pane projection", () 
   assert.deepEqual(tileCoordinate(metadata.tileInfo, lod, 2, 3, 4096, [4096, 0]), tileCoordinate(metadata.tileInfo, lod, 3, 3, 4096, [0, 0]));
   assert.deepEqual(tileCoordinate(metadata.tileInfo, lod, 2, 3, 4096, [0, 4096]), tileCoordinate(metadata.tileInfo, lod, 2, 4, 4096, [0, 0]));
   assert.deepEqual(parseOptions("?panes=gu&scale=500000&tiles=https://example.com/VectorTileServer").panes, ["gu"]);
+  assert.deepEqual(parseOptions("?panes=as&scale=500000&tiles=https://example.com/VectorTileServer").panes, ["as"]);
   assert.throws(() => parseOptions("?tiles=http://example.com/VectorTileServer"));
 });
 
@@ -219,6 +249,19 @@ test("shared services preserve hidden memberships and download the OR union once
   assert.equal(result[1].visible, false);
   assert.equal(result[0].features[1], result[1].features[0]);
   assert.equal(result[0].sharedDownload, result[1].sharedDownload);
+});
+
+test("singleton and all-unfiltered service groups skip membership requests", async () => {
+  for (const [count, where] of [[1, "KEEP = 1"], [2, "1 = 1"]]) {
+    const layers = Array.from({ length: count }, (_, index) => ({ ...fakeLayer(3), id: `layer-${index}`,
+      url: "https://example.com/service/FeatureServer/0", definitionExpression: where, load: async () => {},
+      renderer: { type: "simple", symbol: marker }, queryFeatureCount: async () => 3,
+      queryObjectIds: async () => { assert.fail("Redundant membership request"); } }));
+    const datasets = await loadFeatures(layers, () => {}, async () => {}, { queryFeatures: (_layer, query) => layers[0].queryFeatures(query) });
+    assert.equal(datasets.length, count);
+    for (const dataset of datasets) assert.deepEqual(dataset.features.map(feature => feature.attributes.OID), [0, 1, 2]);
+    if (count === 2) assert.equal(datasets[0].features[0], datasets[1].features[0]);
+  }
 });
 
 test("buffered pane footprint splits the dateline and filters every query", async () => {
@@ -395,7 +438,78 @@ test("holes use the smallest containing clockwise ring; orphan rings become oute
   assert.equal(diagnostics.uncontainedHoles, 1);
 });
 
-test("audit per-feature area against a captured pre-change baseline", { skip: !process.env.CANVAS_AREA_FIXTURE }, () => {
+function exactCoordinateArea(input) {
+  const bits = new DataView(new ArrayBuffer(8));
+  const integer = value => {
+    assert.ok(Number.isFinite(value));
+    bits.setFloat64(0, value);
+    const encoded = bits.getBigUint64(0), exponent = Number((encoded >> 52n) & 2047n);
+    const mantissa = (encoded & ((1n << 52n) - 1n)) | (exponent ? 1n << 52n : 0n);
+    return (encoded >> 63n ? -mantissa : mantissa) << BigInt(exponent ? exponent - 1 : 0);
+  };
+  const reference = input[0]?.[0]?.[0] ?? 0;
+  const rings = input.filter(ring => ring.length >= 3).map(ring => {
+    let previous = reference;
+    const bounds = [Infinity, Infinity, -Infinity, -Infinity];
+    const points = ring.map(([longitude, latitude]) => {
+      const turns = Math.round((previous - longitude) / 360);
+      previous = longitude + turns * 360;
+      bounds[0] = Math.min(bounds[0], previous); bounds[1] = Math.min(bounds[1], latitude);
+      bounds[2] = Math.max(bounds[2], previous); bounds[3] = Math.max(bounds[3], latitude);
+      return { coordinates: [previous, latitude], exact: [integer(longitude) + (BigInt(turns * 360) << 1074n), integer(latitude)] };
+    });
+    let doubled = 0n;
+    for (let index = 0; index < points.length; index++) {
+      const first = points[index].exact, second = points[(index + 1) % points.length].exact;
+      doubled += first[0] * second[1] - second[0] * first[1];
+    }
+    return { points, bounds, doubled: doubled < 0n ? -doubled : doubled };
+  }).filter(ring => ring.doubled !== 0n);
+  const contains = (ring, point) => {
+    let winding = 0;
+    for (let index = 0; index < ring.points.length; index++) {
+      const first = ring.points[index].exact, second = ring.points[(index + 1) % ring.points.length].exact;
+      const cross = (second[0] - first[0]) * (point[1] - first[1]) - (point[0] - first[0]) * (second[1] - first[1]);
+      if (cross === 0n && point[0] >= (first[0] < second[0] ? first[0] : second[0])
+        && point[0] <= (first[0] > second[0] ? first[0] : second[0])
+        && point[1] >= (first[1] < second[1] ? first[1] : second[1])
+        && point[1] <= (first[1] > second[1] ? first[1] : second[1])) return null;
+      if (first[1] <= point[1] && second[1] > point[1] && cross > 0n) winding++;
+      if (first[1] > point[1] && second[1] <= point[1] && cross < 0n) winding--;
+    }
+    return winding !== 0;
+  };
+  let total = 0n;
+  for (const ring of rings) {
+    let depth = 0;
+    for (const candidate of rings) {
+      if (candidate.doubled <= ring.doubled) continue;
+      if (ring.bounds[0] < candidate.bounds[0] || ring.bounds[1] < candidate.bounds[1]
+        || ring.bounds[2] > candidate.bounds[2] || ring.bounds[3] > candidate.bounds[3]) continue;
+      let inside = null;
+      for (const point of ring.points) {
+        inside = contains(candidate, point.exact);
+        if (inside !== null) break;
+      }
+      if (inside) depth++;
+    }
+    total += depth % 2 ? -ring.doubled : ring.doubled;
+  }
+  assert.ok(total >= 0n);
+  const shift = Math.max(0, total.toString(2).length - 53);
+  return Number(total >> BigInt(shift)) * 2 ** (shift - 2149);
+}
+
+test("exact coordinate area is independent of triangulation, winding and ring order", () => {
+  const outer = [[0, 0], [0, 4], [4, 4], [4, 0], [0, 0]];
+  const hole = [[1, 1], [1, 2], [2, 2], [2, 1], [1, 1]];
+  assert.equal(exactCoordinateArea([outer, hole]), 15);
+  assert.equal(exactCoordinateArea([[...hole].reverse(), [...outer].reverse()]), 15);
+  assert.equal(exactCoordinateArea([[[179, 0], [179, 1], [-179, 1], [-179, 0], [179, 0]]]), 2);
+  assert.equal(exactCoordinateArea([[[0, 0], [1, 1], [2, 2]]]), 0);
+});
+
+test("audit every triangulated feature against exact coordinate area", { skip: !process.env.CANVAS_AREA_FIXTURE }, () => {
   const bytes = readFileSync(process.env.CANVAS_AREA_FIXTURE);
   const report = { inputSHA256: createHash("sha256").update(bytes).digest("hex"), layers: [], differences: [] };
   for (const dataset of JSON.parse(bytes)) {
@@ -410,9 +524,10 @@ test("audit per-feature area against a captured pre-change baseline", { skip: !p
             - (vertices[third] - vertices[first]) * (vertices[second + 1] - vertices[first + 1])) / 2;
         }
       }
-      assert.ok(Number.isFinite(area) && Number.isFinite(feature.area));
-      const percent = feature.area === 0 ? area === 0 ? 0 : Infinity : Math.abs(area - feature.area) / feature.area * 100;
-      if (percent > 0.1) report.differences.push({ item: dataset.item, id: feature.id, oldArea: feature.area, newArea: area, percent });
+      const exactArea = exactCoordinateArea(feature.geometry?.rings ?? []);
+      assert.ok(Number.isFinite(area) && Number.isFinite(exactArea));
+      const percent = exactArea === 0 ? area === 0 ? 0 : Infinity : Math.abs(area - exactArea) / exactArea * 100;
+      if (percent > 0.1) report.differences.push({ item: dataset.item, id: feature.id, exactArea, triangulatedArea: area, percent });
     }
     report.layers.push({ item: dataset.item, features: dataset.features.length, ...diagnostics });
   }

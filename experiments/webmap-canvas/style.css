@@ -13,6 +13,7 @@ body { margin: 0; overflow: hidden; }
 #panes[data-count="3"] .pane:first-child { grid-row: span 2; }
 #panes[data-count="5"] { grid-template-columns: repeat(3, 1fr); grid-template-rows: 60% 40%; }
 #panes[data-count="5"] [data-pane="conus"] { grid-column: span 2; }
+#panes[data-count="6"] { grid-template-columns: repeat(3, 1fr); grid-template-rows: 60% 40%; }
 h2 { position: absolute; margin: 0; left: 8px; top: 8px; font-size: 13px; max-width: calc(100% - 105px); background: #ffffffdd; padding: 3px; pointer-events: none; }
 header { position: fixed; inset: 0 0 auto; height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #fff; border-bottom: 1px solid #9cb2b7; padding: 0 14px; }
 h1 { font-size: 15px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -32,7 +33,7 @@ button:focus-visible, .pane:focus-visible, summary:focus-visible { outline: 2px 
 summary { cursor: pointer; font-weight: bold; }
 @media (max-width: 700px) {
   #panes { grid-template-columns: 50% 50%; grid-template-rows: 60% 40%; }
-  h2 { font-size: 11px; max-width: calc(100% - 80px); }
+  h2 { font-size: 11px; max-width: calc(100% - 48px); }
   .recenter { font-size: 10px; right: 4px; }
   #diagnostics { max-height: 20%; width: min(270px, calc(100% - 16px)); }
 }

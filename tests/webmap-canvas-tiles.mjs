@@ -17,6 +17,7 @@ const places = [
   { name: "Honolulu", pane: "hi", center: [-157.86, 21.3] },
   { name: "Guam", pane: "gu", center: [144.75, 13.45] },
   { name: "Anchorage", pane: "ak", center: [-149.9, 61.2] },
+  { name: "Pago Pago", pane: "as", center: [-170.7, -14.28] },
 ];
 const artifacts = mkdtempSync(join(tmpdir(), "usa-map-tile-coasts-"));
 const results = { base, services, boundaryService, method: "Symmetric sampled coastline-to-segment distance in a 40km square centered on each anchor, CSS pixels at DPR1", rows: [], layouts: [] };
@@ -103,7 +104,7 @@ try {
   }
   for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844 }]) {
     const page = await browser.newPage({ viewport, deviceScaleFactor: 1 });
-    await page.goto(`${base}experiments/webmap-canvas/?${new URLSearchParams({ projection: "albers", panes: "conus,ak,hi,pr,gu",
+    await page.goto(`${base}experiments/webmap-canvas/?${new URLSearchParams({ projection: "albers", panes: "conus,ak,hi,pr,gu,as",
       scale: "1000000", tiles: services.toReversed().join(",") })}`);
     await page.waitForFunction(() => ["ready", "error"].includes(window.webmapCanvas?.status), null, { timeout: 120000 });
     const layout = await page.evaluate(() => {

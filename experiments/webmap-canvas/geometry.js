@@ -110,7 +110,7 @@ class InstanceBuffer {
   get count() { return this.length / 6; }
 }
 
-export async function prepareGeometry(dataset, budget) {
+export async function prepareGeometry(dataset, budget, yieldToUI = true) {
   const diagnostics = dataset.geometryDiagnostics = { zeroAreaRings: 0, uncontainedHoles: 0 };
   const groups = new Map();
   const group = draw => {
@@ -162,7 +162,7 @@ export async function prepareGeometry(dataset, budget) {
       const buffer = group({ mode: 2, color, outline, size: symbol.size * 96 / 72, width: (symbol.outline?.width ?? 0) * 96 / 72 });
       for (const point of continuousPath(points)) buffer.add(point);
     }
-    if (++featureIndex % 16 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+    if (++featureIndex % 16 === 0 && yieldToUI) await new Promise(resolve => setTimeout(resolve, 0));
   }
   const buffers = group => [...group.cells.values()].flat();
   const instances = [...groups.values()].reduce((sum, group) => sum + buffers(group).reduce((count, buffer) => count + buffer.count, 0), 0);
