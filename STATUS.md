@@ -29,9 +29,9 @@ including [src/main.js](src/main.js); publish only after owner review and
 explicit approval. The approved release below is now live; subsequent local
 edits still require a separately approved production push.
 
-## Local Performance Changes
+## Published Performance Changes
 
-Not yet published: Canvas 2D locator globes replace Three.js; globe layouts
+Published: Canvas 2D locator globes replace Three.js; globe layouts
 skip overview creation. Drawer and PR views are created on first open and
 destroyed on close. Hidden tabs destroy all views and restore navigation on
 return, retaining maps/layers. Console diagnostics report live document/iframe
@@ -42,16 +42,16 @@ only the standard overview owns them and its separate retained layer clones.
 All four projection/layout combinations passed native Chrome at 1920x1080 and
 2560x1600 for each implementation step. Final two-tab globe stress passed
 40 switches with no context accumulation or context-limit warning. The build
-passed. Dependency audit findings are resolved by the local work below;
+passed. Dependency audit findings are resolved by the work below;
 the large-bundle warning remains.
 
 See [session 0004](session-logs/2026-11-03-0004-session-log.md) for counts,
 validation limitations and the proposed, unimplemented iframe migration.
-The owner authorized publication in session 0007; deployment verification is pending.
+Published with owner approval in session 0007; production regression checks passed.
 
-## Local Scale Bar and Dependency Repairs
+## Published Scale Bar and Dependency Repairs
 
-Not yet published: all seven ScaleBar construction sites now use the installed
+Published: all seven ScaleBar construction sites now use the installed
 4.32 `arcgis-scale-bar` component, with explicit view-owned cleanup. Globe mode
 still creates only six bars. Dual units, positions, true line lengths and compact
 pane hiding match the former widgets across all ten ADR landscape sizes and
@@ -70,21 +70,23 @@ code; changed JavaScript passes. npm still reports three install-script approval
 warnings. No blanket script approval was added. These results supersede the
 historical pending-audit statements below, not the production release record.
 See [session 0006](session-logs/2026-11-03-0006-session-log.md) for exact versions,
-override rationale, evidence and limitations. Publication is now authorized;
+override rationale, evidence and limitations. Publication is verified;
 see [session 0007](session-logs/2026-11-03-0007-session-log.md) for the release outcome.
 
 ## Published Release
 
-- Runtime commit: `f7503c35a6d922fc735f6ca551034248a7adb6b9`.
-- Pages deployment succeeded at 2026-11-03 15:23:46-08:00[America/Los_Angeles]
-  in [run 41738654420](https://github.com/dasbury-esri/usa-equal-area-map/actions/runs/41738654420).
+- Runtime commit: `daf05e7eebd9abc67475fdb339bf10eda8b921f5`.
+- Pages deployment `7535560324` succeeded at
+  2026-11-03 17:43:32-08:00[America/Los_Angeles] in
+  [run 41755828793](https://github.com/dasbury-esri/usa-equal-area-map/actions/runs/41755828793).
 - [Production](https://dasbury-esri.github.io/usa-equal-area-map/) and
   [Albers](https://dasbury-esri.github.io/usa-equal-area-map/?projection=albers)
   now use responsive framing without an opt-in parameter.
-- Public default/Albers/standard/globe smoke checks passed at 1920x1080,
-  including saved centers, scale linking, reset/recenter and globe pixels.
-  Both HTML entry points match the verified build byte-for-byte. The current
-  background and state layers load successfully. See the session log for scope.
+- Public default/Albers/standard/globe smoke checks passed at 1920x1080 and
+  2560x1600, including loaded layers, scale linking, view lifecycle, globe pixels
+  and 40 tab switches. Both HTML entry points match the verified build byte-for-byte.
+  An initial readiness timeout did not recur in the unchanged full rerun; its
+  cause remains unconfirmed. See session 0007 for evidence and limitations.
 
 ## Current state
 
