@@ -1,5 +1,4 @@
 import "./webgl-contexts.js";
-import Map from "@arcgis/core/Map.js";
 import { connectViewLifecycle } from "./view-lifecycle.js";
 //import WebMap from "@arcgis/core/WebMap.js";
 import FeatureLayer from "@arcgis/core/layers/FeatureLayer.js";
@@ -10,6 +9,8 @@ import Extent from "@arcgis/core/geometry/Extent.js";
 import * as projectOperator from "@arcgis/core/geometry/operators/projectOperator.js";
 //import * as Projection from "@arcgis/core/geometry/projection.js";
 import SpatialReference from "@arcgis/core/geometry/SpatialReference.js";
+import { projections } from "./projections.js";
+import { loadMapSources, mapMessage } from "./webmap-basemaps.js";
 import "@arcgis/map-components/components/arcgis-scale-bar";
 //import Compass from "@arcgis/core/widgets/Compass.js";
 import Graphic from "@arcgis/core/Graphic.js";
@@ -31,6 +32,9 @@ if (globeTrial || albersProj || framingPreview) {
     if (globeTrial) drawerURL.searchParams.set("overview", "globes");
     if (albersProj) drawerURL.searchParams.set("projection", "albers");
     if (framingPreview) drawerURL.searchParams.set("framing", "preview");
+    for (const key of ["webmap", "basemaps", "overviewBasemap"]) {
+      if (urlParams.has(key)) drawerURL.searchParams.set(key, urlParams.get(key));
+    }
     drawerFrame.dataset.src = drawerURL.href;
   }
 }
@@ -276,6 +280,10 @@ function addExtentLeader(overview, inset, graphic) {
 
 const App =  () => {
     return projectOperator.load().then(async () => {
+        const sources = await loadMapSources(urlParams);
+        const paneSR = (pane) => sources.spatialReference(pane, new SpatialReference({
+          wkt: projections[albersProj ? "albers" : "lambert"][pane].wkt,
+        }));
         if (projectOperator.isLoaded()) {
             console.log("projectOperator is loaded");
             // Add your projection parameters or logic here
@@ -283,54 +291,8 @@ const App =  () => {
             console.error("Failed to load projectOperator");
         }
  {
-    //Projection parameters              
-    {
-    // Lambert Equal Area Projection for continental US
-    var conusSR = new SpatialReference(
-      viewDefaults.main.drawerOpenCenter.spatialReference);
-    // Lambert Equal Area projection for Alaska map
-    var akSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_Alaska",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-148.0],PARAMETER["Latitude_Of_Origin",64.0],UNIT["Meter",1.0]]');
-    // Lambert Equal Area projection for Hawaii map
-    var hiSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_Hawaii",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-156.0],PARAMETER["Latitude_Of_Origin",20.0],UNIT["Meter",1.0]]');
-    // Lambert Equal Area Projection for Puerto Rico/US Virgin Islands map
-    var prSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_PR_VI",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-65.5],PARAMETER["Latitude_Of_Origin",18.0],UNIT["Meter",1.0]]');
-    // Lambert Equal Area Projection for Guam/Northern Marianas map
-    var guSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_GU_MP",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",145.0],PARAMETER["Latitude_Of_Origin",16.0],UNIT["Meter",1.0]]');
-    // Lambert Equal Area Projection for American Samoa map
-    var asSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_AS",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-170.0],PARAMETER["Latitude_Of_Origin",-14.0],UNIT["Meter",1.0]]');
-    // Lambert Equal Area Projection for Overview map
-    var overviewSR = new SpatialReference(
-        'PROJCS["Lambert Azimuthal Equal Area_US_global_extent",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Azimuthal_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-140.0],PARAMETER["Latitude_Of_Origin",17.25],UNIT["Meter",1.0]]');
-    }
-
-    {
-    // Albers Equal Area Projection for continental US
-    var conusAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_US",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-96.0],PARAMETER["Standard_Parallel_1",29.5],PARAMETER["Standard_Parallel_2",45.5],PARAMETER["Latitude_Of_Origin",23.0],UNIT["Meter",1.0]]');
-    // Albers Equal Area Projection for Alaska map
-    var akAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_AK",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-146.0],PARAMETER["Standard_Parallel_1",55.0],PARAMETER["Standard_Parallel_2",65.0],PARAMETER["Latitude_Of_Origin",50.0],UNIT["Meter",1.0]]');
-    // Albers Equal Area Projection for Hawaii map
-    var hiAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_HI",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-157.0],PARAMETER["Standard_Parallel_1",8.0],PARAMETER["Standard_Parallel_2",18.0],PARAMETER["Latitude_Of_Origin",13.0],UNIT["Meter",1.0]]');
-    // Albers Equal Area Projection for Puerto Rico map
-    var prAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_PR",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-66.5],PARAMETER["Standard_Parallel_1",18.0],PARAMETER["Standard_Parallel_2",20.0],PARAMETER["Latitude_Of_Origin",17.0],UNIT["Meter",1.0]]');
-    // Albers Equal Area Projection for Guam/Northern Marianas map
-    var guAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_Guam",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",145.0],PARAMETER["Standard_Parallel_1",13.0],PARAMETER["Standard_Parallel_2",15.0],PARAMETER["Latitude_Of_Origin",12.0],UNIT["Meter",1.0]]');
-    // Albers Equal Area Projection for American Samoa map
-    var asAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_AS",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-170.0],PARAMETER["Standard_Parallel_1",-14.0],PARAMETER["Standard_Parallel_2",-10.0],PARAMETER["Latitude_Of_Origin",-13.0],UNIT["Meter",1.0]]');
-    // Albers Equal Area Projection for Overview map
-    var overviewAlbersSR = new SpatialReference(
-      'PROJCS["Albers Equal Area_Overview",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers_Equal_Area"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-140.0],PARAMETER["Standard_Parallel_1",29.5],PARAMETER["Standard_Parallel_2",45.5],PARAMETER["Latitude_Of_Origin",23.0],UNIT["Meter",1.0]]');
-    }
+    const [akSR, hiSR, guSR, asSR, overviewSR] = ["ak", "hi", "gu", "as", "overview"]
+      .map(pane => new SpatialReference({ wkt: projections.lambert[pane].wkt }));
 
     var defaultLayer = new FeatureLayer({
       id: "defaultLayer",
@@ -488,21 +450,16 @@ const App =  () => {
       }); 
     // If no parameters are specified in the url, display the default map
     var layer = defaultLayer;
-    var layerMap = new Map({
-      layers: [oceanLayer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer, airportGrounds, airportRunways]
-    });
+    const defaultLayers = [oceanLayer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer, airportGrounds, airportRunways];
+    const paneMap = pane => sources.map(pane, defaultLayers);
     let overviewMap = null;
     if (!globeTrial && document.getElementById("akViewDiv")) {
-      overviewMap = new Map({
-        layers: [oceanLayer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer]
-          .map(source => source.clone()),
-      });
-      overviewMap.addMany([
+      overviewMap = sources.map("overview", [oceanLayer, backgroundLayer, usStatesLayer, contextLayer, usOutlyingAreasLayer, layer]);
+      if (!sources.hasWebmap) overviewMap.addMany([
         new FeatureLayer({ id: "latlongLayer", portalItem: { id: "278e3884c50649baba4910a6d7b39922" }, popupEnabled: false }),
         new FeatureLayer({ id: "latlong180Layer", portalItem: { id: "3d47090c1ecc4fb1a84458cbc0274888" }, popupEnabled: false }),
       ], 1);
     }
-    var map = layerMap;
     var scale = viewDefaults.main.scale;
     const createMain = async (scope) => {
     // CONUS map
@@ -510,7 +467,7 @@ const App =  () => {
     let conusViewCenterPt = new Point(viewDefaults.main.center);
   const mainView = scope.create({
       container: "mainViewDiv",
-      map: map,
+      map: paneMap("conus"),
       popup: {
         highlightEnabled: false,
         dockEnabled: true,
@@ -523,7 +480,7 @@ const App =  () => {
       center: conusViewCenterPt,
       scale: scale,
       rotation: viewDefaults.main.rotation,
-      spatialReference: albersProj ? conusAlbersSR : conusSR,
+      spatialReference: paneSR("conus"),
       ui: {
         components: []
       }
@@ -537,6 +494,7 @@ const App =  () => {
     addScaleBar(mainView);
     // Turn off unwanted layers in CONUS map
     mainView.on("layerview-create", (event) => {
+      if (sources.hasWebmap) return;
         if (event.layer.id === "latlongLayer") {
           event.layerView.visible = false;
         }
@@ -553,6 +511,7 @@ const App =  () => {
     // Print the map scale to the console
     console.log("Scale: " + mainView.scale);
     await scope.wait(mainView.when());
+    await scope.wait(sources.addLayerList(mainView));
     mainView.addHandles(reactiveUtils.watch(() => mainView.scale, (newScale) => {
       const label = document.getElementById("mainViewScaleValue");
       if (label) label.textContent = Math.round(newScale).toLocaleString();
@@ -571,8 +530,8 @@ const App =  () => {
     const createPr = async (scope) => {
     const prView = scope.create({
       container: "prViewDiv",
-      map,
-      spatialReference: albersProj ? prAlbersSR : prSR,
+      map: paneMap("pr"),
+      spatialReference: paneSR("pr"),
       center: new Point(viewDefaults.puertoRico.center),
       scale: window.mainView.scale,
       rotation: viewDefaults.puertoRico.rotation,
@@ -585,6 +544,7 @@ const App =  () => {
     });
     window.prView = prView;
     prView.on("layerview-create", (event) => {
+      if (sources.hasWebmap) return;
       if (["latlongLayer", "latlong180Layer"].includes(event.layer.id)) {
         event.layerView.visible = false;
       }
@@ -610,7 +570,7 @@ const App =  () => {
     });
     const akView = scope.create({
         container: "akViewDiv",
-        map: map,
+      map: paneMap("ak"),
         popup: {
           highlightEnabled: false,
           dockEnabled: true,
@@ -623,13 +583,14 @@ const App =  () => {
         center: akViewCenterPt,
         scale: viewDefaults.alaska.scale,
         rotation: viewDefaults.alaska.rotation,
-        spatialReference: albersProj ? akAlbersSR : akSR,
+        spatialReference: paneSR("ak"),
         ui: {
           components: []//["attribution"]
         }
     });
     // Turn off unwanted layers in Alaska map
     akView.on("layerview-create", (event) => {
+      if (sources.hasWebmap) return;
       if (event.layer.id === "latlongLayer") {
         event.layerView.visible = false;
       }
@@ -690,7 +651,7 @@ const App =  () => {
         constraints: {
           rotationEnabled: true
         },
-        spatialReference: albersProj ? overviewAlbersSR : overviewSR,
+        spatialReference: paneSR("overview"),
         ui: {
           components: []//["attribution"]
         }
@@ -699,6 +660,7 @@ const App =  () => {
     addScaleBar(overView, "bottom-right");
     // Turn off unwanted layers in GU/MP
     overView.on("layerview-create", (event) => {
+      if (sources.hasWebmap) return;
       if (event.layer.id === "imageryLayer") {
         event.layerView.visible = false;
       }
@@ -725,7 +687,7 @@ const App =  () => {
 
     const guView = scope.create({
         container: "guViewDiv",
-        map: map,
+      map: paneMap("gu"),
         popup: {
           highlightEnabled: false,
           dockEnabled: true,
@@ -738,7 +700,7 @@ const App =  () => {
         center: guViewCenterPt,
         scale: viewDefaults.guam.scale,
         rotation: viewDefaults.guam.rotation,
-        spatialReference: albersProj ? guAlbersSR : guSR,
+        spatialReference: paneSR("gu"),
         ui: {
           components: []//["attribution"]
         }
@@ -746,6 +708,7 @@ const App =  () => {
     addScaleBar(guView);
     // Turn off unwanted layers in GU/MP
     guView.on("layerview-create", (event) => {
+      if (sources.hasWebmap) return;
       if (event.layer.id === "latlongLayer") {
         event.layerView.visible = false;
       }
@@ -766,7 +729,7 @@ const App =  () => {
     });
     const asView = scope.create({
         container: "asViewDiv",
-        map: map,
+      map: paneMap("as"),
         popup: {
           highlightEnabled: false,
           dockEnabled: true,
@@ -779,7 +742,7 @@ const App =  () => {
         center: asViewCenterPt,
         scale: viewDefaults.americanSamoa.scale,
         rotation: viewDefaults.americanSamoa.rotation,
-        spatialReference: albersProj ? asAlbersSR : asSR,
+        spatialReference: paneSR("as"),
         ui: {
           components: []//["attribution"]
         }
@@ -787,6 +750,7 @@ const App =  () => {
     addScaleBar(asView);
     // Turn off unwanted layers in AS map
     asView.on("layerview-create", (event) => {
+      if (sources.hasWebmap) return;
       if (event.layer.id === "latlongLayer") {
         event.layerView.visible = false;
       }
@@ -807,7 +771,7 @@ const App =  () => {
     });
     const hiView = scope.create({
         container: "hiViewDiv",
-        map: map,
+      map: paneMap("hi"),
         popup: {
           highlightEnabled: false,
           dockEnabled: true,
@@ -820,7 +784,7 @@ const App =  () => {
         center: hiViewCenterPt,
         scale: viewDefaults.hawaii.scale,
         rotation: viewDefaults.hawaii.rotation,
-        spatialReference: albersProj ? hiAlbersSR : hiSR,
+        spatialReference: paneSR("hi"),
         ui: {
           components: []//["attribution"]
         }
@@ -828,6 +792,7 @@ const App =  () => {
     addScaleBar(hiView);
     // Turn off unwanted layers in HI map
     hiView.on("layerview-create", (event) => {
+      if (sources.hasWebmap) return;
       if (event.layer.id === "latlongLayer") {
         event.layerView.visible = false;
       }
@@ -995,8 +960,12 @@ const App =  () => {
     };
 }).catch((error) => {
     console.error("Error loading projectOperator:", error);
+  throw error;
 });
 }
 export default App;
 
-window.mainViewReady = App();
+window.mainViewReady = App().catch(error => {
+  mapMessage(`Map sources refused: ${error.message}`, true);
+  throw error;
+});

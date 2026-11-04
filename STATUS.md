@@ -8,13 +8,29 @@ state: active
 health: green
 priority: 2
 next_action: "fix the drawer and check for dependency updates. update dependencies as appropriate"
-updated: 2026-11-03
+updated: 2026-11-04
 extra:
   agents: [copilot-enterprise]
   predecessor: usa-equal-area-map-proto
 ---
 
 # USA Equal Area Map
+
+## Unpublished Vector-Tile Experiment
+
+Local branch `experiment/vt-basemaps` starts from `main`; no merge or deployment.
+URL-selected operational WebMaps are cloned into independent per-pane Maps with
+one synchronized Layer List. Albers-only per-pane vector basemaps validate their
+loaded tile projection numbers, permit documented NAD83/WGS84 differences and
+optionally supply the CONUS-projected overview. Lambert ignores basemap options.
+Both requested viewport sizes preserve CONUS fit and nine live native WebGL
+contexts. Thirty-two exact-scale city cases record sampled shoreline offsets;
+Honolulu reaches 6.32px at 1:500,000, versus less than 0.012px for the separate
+datum-only comparison. Hawaii's coarse level-0 geometry and limited coverage,
+the unchanged Alaska panhandle clipping and overview coverage cap remain limits.
+Build and 621 chunk budgets pass. See [session 0019](session-logs/2026-11-04-0019-session-log.md)
+for retained screenshots, request counts, native tests and measurement caveats.
+The owner's `next_action` is unchanged.
 
 ## Local Development
 

@@ -1,5 +1,25 @@
 @import "https://js.arcgis.com/4.32/@arcgis/core/assets/esri/themes/light/main.css";
 
+#map-source-diagnostics {
+  position: fixed;
+  z-index: 30;
+  bottom: 8px;
+  right: 8px;
+  box-sizing: border-box;
+  max-width: min(440px, calc(100vw - 24px));
+  max-height: 30vh;
+  overflow: auto;
+  padding: 8px 12px;
+  background: #fff;
+  color: #303030;
+  border: 1px solid #777;
+  font: 12px/1.4 "Avenir Next", sans-serif;
+}
+
+#map-source-diagnostics summary { cursor: pointer; }
+#map-source-diagnostics p { margin: 8px 0 0; overflow-wrap: anywhere; }
+#map-source-diagnostics [role="alert"] { color: #a32121; }
+
 :root {
   --pr-drawer-top: 79%;
 }

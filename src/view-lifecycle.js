@@ -25,7 +25,7 @@ export function createViewGroup(factory, onDestroy = () => {}) {
         create(options) {
           signal.throwIfAborted();
           const snapshot = saved.get(options.container);
-          const view = new MapView({ ...options, ...(snapshot ? {
+          const view = new MapView({ ...options, constraints: { snapToZoom: false, ...options.constraints }, ...(snapshot ? {
             center: new Point(snapshot.center), scale: snapshot.scale, rotation: snapshot.rotation,
           } : {}) });
           run.views.push(view);

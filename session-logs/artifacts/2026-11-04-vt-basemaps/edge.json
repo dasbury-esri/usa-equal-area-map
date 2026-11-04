@@ -1,0 +1,22 @@
+[
+  {
+    "label": "wrong-projection",
+    "refused": true
+  },
+  {
+    "label": "wrong-region",
+    "refused": true
+  },
+  {
+    "label": "malformed",
+    "refused": true
+  },
+  {
+    "label": "lambert-ignored-lazy-toggle",
+    "passed": true
+  },
+  {
+    "label": "no-url-defaults",
+    "passed": true
+  }
+]

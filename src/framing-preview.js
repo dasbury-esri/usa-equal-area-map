@@ -1,4 +1,7 @@
 import * as reactiveUtils from "@arcgis/core/core/reactiveUtils.js";
+import Point from "@arcgis/core/geometry/Point.js";
+import * as projectOperator from "@arcgis/core/geometry/operators/projectOperator.js";
+import { projections } from "./projections.js";
 import { albersBounds, lambertBounds, fitPlacement, fitOverview } from "../experiments/framing-placement.js";
 
 const padding = 16;
@@ -58,7 +61,11 @@ export async function connectFramingPreview(mainView, restored = false) {
       const overviewFit = fitOverview(overview, albers);
       overview.scale = overviewFit.resolution * overview.scale / overview.resolution;
       overview.rotation = overviewFit.rotation;
-      setCenter(overview, overviewFit);
+      const center = frame.contentWindow.mapSourceDiagnostics?.options.overview
+        ? projectOperator.execute(new Point({ x: overviewFit.x, y: overviewFit.y,
+          spatialReference: { wkt: projections.albers.overview.wkt } }), overview.spatialReference)
+        : overviewFit;
+      setCenter(overview, center);
     }
   };
   mainView.addHandles(reactiveUtils.watch(() => [mainView.width, mainView.height], update));
