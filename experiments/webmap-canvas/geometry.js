@@ -57,7 +57,10 @@ export function polygonParts(rings, diagnostics = { zeroAreaRings: 0, uncontaine
     const outer = smallestFirst.find(({ bounds, ring }) => longitude >= bounds[0] && longitude <= bounds[2]
       && latitude >= bounds[1] && latitude <= bounds[3] && containsPoint(ring, longitude, latitude));
     if (outer) outer.holes.push(hole);
-    else diagnostics.uncontainedHoles++;
+    else {
+      diagnostics.uncontainedHoles++;
+      outers.push({ ring: hole.reverse(), holes: [] });
+    }
   }
   return outers.map(outer => [outer.ring, ...outer.holes].map(densifyPath));
 }

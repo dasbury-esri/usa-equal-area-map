@@ -199,7 +199,7 @@ test("culling skips offscreen chunks and merges adjacent visible ranges", () => 
   assert.deepEqual(visibleRanges(draw, "conus", [0, 0, 10, 10], false), [{ offset: 0, count: 12 }]);
 });
 
-test("holes use the smallest containing clockwise ring; degenerate and orphan rings are counted", () => {
+test("holes use the smallest containing clockwise ring; orphan rings become outers", () => {
   const large = [[0, 0], [0, 10], [10, 10], [10, 0], [0, 0]];
   const small = [[2, 2], [2, 8], [8, 8], [8, 2], [2, 2]];
   const hole = [[3, 3], [4, 3], [4, 4], [3, 4], [3, 3]];
@@ -207,9 +207,12 @@ test("holes use the smallest containing clockwise ring; degenerate and orphan ri
   for (const rings of [[large, small, hole], [hole, small, large]]) {
     const diagnostics = { zeroAreaRings: 0, uncontainedHoles: 0 };
     const polygons = polygonParts([...rings, [], [[1, 1], [2, 2], [3, 3]], orphan], diagnostics);
-    assert.equal(polygons.length, 2);
+    assert.equal(polygons.length, 3);
     assert.equal(polygons.find(polygon => polygon[0][0][0] === 2).length, 2);
     assert.equal(polygons.find(polygon => polygon[0][0][0] === 0).length, 1);
+    const promoted = polygons.find(polygon => polygon[0][0][0] === 23);
+    assert.equal(promoted.length, 1);
+    assert.deepEqual(promoted[0], densifyPath([...orphan].reverse()));
     assert.deepEqual(diagnostics, { zeroAreaRings: 2, uncontainedHoles: 1 });
   }
   const concave = [[0, 0], [0, 5], [2, 5], [2, 2], [5, 2], [5, 0], [0, 0]];
