@@ -3,6 +3,16 @@
 Read STATUS.md and relevant decision records before changing behavior. Preserve
 the owner's next_action and require explicit approval for production publication.
 
+## STATUS Authoring
+
+This project uses `schema_version: 2`, defined by `schema/status-v2.yaml`.
+Never downgrade the declaration without explicit owner approval. Preserve owner
+values; v2 limits `next_action` to 400 characters, but never truncate owner text
+merely to pass validation. Validate using `scripts/validate_status.py` with Python
+and PyYAML. See `scripts/README.md` for the shared environment and per-clone hook
+setup. These repository rules remain authoritative; installing the tooling does
+not replace them with template policy or authorize application publication.
+
 ## Session Logs
 
 Before creating or renumbering a session log:

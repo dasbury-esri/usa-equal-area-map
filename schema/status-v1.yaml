@@ -1,0 +1,82 @@
+# schema/status-v1.yaml
+#
+# The STATUS contract, version 1. Read by the validator
+# (e.g. scripts/validate_status.py) — this file IS the schema.
+# ADR-001 contains rationale only and repeats nothing normative from here.
+#
+# Changing required fields means a new <schema name>-vN.yaml file and a
+# schema_version bump in STATUS.md files, not an edit to this one.
+# Migration is lazy: a repo moves to a new schema_version when it is next
+# touched, never in a flag-day sweep across all repos.
+
+schema_version: 1
+
+required_fields:
+
+  schema_version:
+    type: integer
+    description: >
+      Schema version this STATUS.md conforms to. The aggregator must
+      tolerate multiple versions during transition.
+
+  id:
+    type: string
+    description: >
+      Stable slug identifying the project. Never changes, even if the
+      project is renamed. 'id' is allowed to become a fossil, 
+      while 'name' carries current meaning 
+
+  name:
+    type: string
+    description: Display name. May change freely.
+
+  domain:
+    type: string
+    enum: [work, personal]
+    description: >
+      Which side of the work/personal boundary this project is on.
+      Governs export rules under ADR-004.
+
+  confidential:
+    type: boolean
+    description: >
+      Governs what crosses the work/personal wall. true means
+      "hand-entered, never machine-synced" (see ADR-004).
+
+  state:
+    type: string
+    enum: [active, paused, blocked, done, archived]
+
+  health:
+    type: string
+    enum: [green, yellow, red]
+
+  priority:
+    type: integer
+    description: >
+      Owner-defined ordinal scale. The meaning of "lower/higher = more
+      urgent" and the value used for non-active projects are conventions
+      defined in scripts/aggregate_status.py (the convention block by
+      LOWER_PRIORITY_IS_MORE_URGENT), not by this schema.
+
+  next_action:
+    type: string
+    description: One-line, human-readable description of the next step.
+
+  updated:
+    type: string
+    format: date   # YYYY-MM-DD
+    description: >
+      Date this STATUS.md was last updated. Drives staleness detection.
+
+# The extra block is open and explicitly UNVALIDATED. Any project may put
+# any fields here for experimentation. The validator and aggregator must
+# ignore unknown fields wherever they appear, and must never reject a
+# STATUS.md because of the contents of `extra`.
+extra:
+  type: object
+  validated: false
+  description: >
+    Open block for project-specific or experimental fields. A field proven
+    useful across projects can be promoted to a required field in a future
+    schema_version — never the reverse (no silently-required extra fields).

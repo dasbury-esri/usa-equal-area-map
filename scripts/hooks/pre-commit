@@ -1,0 +1,164 @@
+#!/bin/sh
+# pre-commit — block a commit that would stage an invalid STATUS.md.
+#
+# Authoring-time guard (ADR-001 "write time" call site): catches a bad enum
+# value (e.g. state: 'archivede') BEFORE it is committed, instead of letting
+# aggregate_status.py drop the project from the digest at read time, where a
+# typo can sit unnoticed.
+# It validates the staged (index) content, not the working tree.
+#
+# Degrade-don't-break (D11):
+#   - Only staged STATUS.md files are looked at; every other file is ignored,
+#     so this hook never interferes with an unrelated commit.
+#   - Exit 1 (block) ONLY on a real validation failure.
+#   - If the environment can't validate (no python, no PyYAML, validator or
+#     schema not found), it warns loudly and ALLOWS the commit — a missing
+#     tool is the owner's problem to fix, not a reason to wedge every commit.
+#
+# Cross-platform: POSIX sh, so it runs under Git Bash on the Windows work VM
+# as well as on Linux (asker). Python is invoked as python3, falling back to
+# python (Git Bash ships it as `python`).
+#
+# Installed by scripts/install-hooks.sh. This file is the source of truth;
+# the copy in .git/hooks/ is generated.
+
+set -u
+
+# --- staged STATUS.md files (Added / Copied / Modified only) ----------------
+# --no-renames reports a rename as delete + add so its destination is checked
+# (a tracked file renamed to STATUS.md would otherwise skip validation).
+# core.quotePath=false keeps non-ASCII names literal; names git still C-quotes (a
+# quote, backslash, tab or newline) end in a closing quote, so the pattern allows
+# it and run_validator_on_index then refuses them instead of skipping them.
+staged=$(git -c core.quotePath=false diff --cached --no-renames --name-only --diff-filter=ACMT | grep -E '(^|/)STATUS\.md"?$' || true)
+if [ -z "$staged" ]; then
+    exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+# --- pick a python interpreter ----------------------------------------------
+# Use the first candidate that can `import yaml`, in this order:
+#   $STATUS_VALIDATOR_PYTHON, this repo's venv, the per-machine validator venv
+#   (made by scripts/bootstrap-validator-env.sh), then system python3 / python.
+# A bare system python (e.g. Homebrew on macOS) often has no PyYAML, so without
+# this lookup the STATUS.md check would silently never run.
+PY=""
+fallback=""
+for cand in \
+    "${STATUS_VALIDATOR_PYTHON:-}" \
+    "$repo_root/venv/bin/python" \
+    "$repo_root/venv/Scripts/python.exe" \
+    "$repo_root/.venv/bin/python" \
+    "${HOME:-}/.venvs/status-validator/bin/python" \
+    "${HOME:-}/.venvs/status-validator/Scripts/python.exe" \
+    python3 python
+do
+    [ -n "$cand" ] || continue
+    # Git runs hooks from the top level, but the validator runs from a temp dir
+    # later, so a relative interpreter path must be anchored to the repo now or it
+    # would stop resolving and the check would silently not run.
+    case "$cand" in
+        /*|[A-Za-z]:*) ;;
+        */*) cand="$repo_root/$cand" ;;
+    esac
+    case "$cand" in
+        /*|[A-Za-z]:*) [ -x "$cand" ] || continue ;;
+        *) command -v "$cand" >/dev/null 2>&1 || continue ;;
+    esac
+    [ -n "$fallback" ] || fallback=$cand
+    if "$cand" -c 'import yaml' >/dev/null 2>&1; then
+        PY=$cand
+        break
+    fi
+done
+if [ -z "$PY" ]; then
+    if [ -z "$fallback" ]; then
+        echo "pre-commit: warning: no python3/python found; skipping STATUS.md validation." >&2
+        echo "            install Python, then run scripts/bootstrap-validator-env.sh." >&2
+    else
+        echo "" >&2
+        echo "pre-commit: WARNING — STATUS.md was NOT validated: no Python with PyYAML found." >&2
+        echo "            one-time fix per machine:  sh scripts/bootstrap-validator-env.sh" >&2
+        echo "            (or point STATUS_VALIDATOR_PYTHON at an interpreter that has PyYAML)" >&2
+        echo "            the commit is allowed, but the check did not run." >&2
+        echo "" >&2
+    fi
+    exit 0
+fi
+
+# --- locate validate_status.py ----------------------------------------------
+# Prefer this repo's own copy (project-tracking); otherwise fall back to the
+# canonical one under PERSONAL_CLONE_ROOT, so the same hook works when copied
+# into any other tracked project repo.
+validator=""
+for cand in \
+    "$repo_root/scripts/validate_status.py" \
+    "${PERSONAL_CLONE_ROOT:-}/project-tracking/scripts/validate_status.py"
+do
+    if [ -n "$cand" ] && [ -f "$cand" ]; then
+        validator="$cand"
+        break
+    fi
+done
+
+if [ -z "$validator" ]; then
+    echo "pre-commit: warning: validate_status.py not found (looked in this repo and" >&2
+    echo "            \$PERSONAL_CLONE_ROOT/project-tracking); skipping validation." >&2
+    exit 0
+fi
+
+# --- validate what will be COMMITTED, not what is on disk ---------------------
+# `git commit` records the INDEX. A staged STATUS.md can differ from the working
+# file (partial `git add`, or an edit made after staging), so validating the
+# working tree can pass a bad commit and block a good one. Instead, export each
+# staged blob into a temp tree under its repo-relative path and run the
+# validator from there (it resolves its schema from its own location, not the
+# cwd), so messages still show the repo path. $staged is newline-separated.
+# Returns the validator's exit code, or 2 if the temp tree could not be built.
+run_validator_on_index() {
+    _validator=$1
+    _tmp=$(mktemp -d 2>/dev/null || mktemp -d -t status-validate 2>/dev/null) || return 2
+    set --
+    while IFS= read -r _p; do
+        [ -n "$_p" ] || continue
+        case "$_p" in
+            \"*)
+                # git C-quotes paths holding a quote, backslash, tab or newline.
+                echo "pre-commit: cannot validate git-quoted path $_p; rename it or use --no-verify." >&2
+                rm -rf "$_tmp"
+                return 1
+                ;;
+        esac
+        mkdir -p -- "$_tmp/$(dirname -- "$_p")" || { rm -rf "$_tmp"; return 2; }
+        git -C "$repo_root" show ":$_p" > "$_tmp/$_p" || { rm -rf "$_tmp"; return 2; }
+        case "$_p" in -*) set -- "$@" "./$_p" ;; *) set -- "$@" "$_p" ;; esac
+    done <<EOF
+$staged
+EOF
+    ( cd "$_tmp" && "$PY" "$_validator" "$@" )
+    _rc=$?
+    rm -rf "$_tmp"
+    return $_rc
+}
+
+# --- validate ---------------------------------------------------------------
+# validate_status.py exit codes: 0 = valid, 1 = invalid, 2 = environment error
+# (schema/PyYAML missing). Block only on 1; degrade on 2.
+run_validator_on_index "$validator"
+rc=$?
+
+if [ "$rc" -eq 0 ]; then
+    exit 0
+elif [ "$rc" -eq 1 ]; then
+    echo "" >&2
+    echo "pre-commit: commit BLOCKED — a staged STATUS.md failed schema validation." >&2
+    echo "            fix the field(s) above (see schema/status-v1.yaml), then re-commit." >&2
+    echo "            to override in an emergency: git commit --no-verify" >&2
+    exit 1
+else
+    echo "pre-commit: warning: validator could not run (exit $rc); allowing commit." >&2
+    echo "            check that PyYAML is installed, schema/status-v1.yaml exists and the" >&2
+    echo "            temp directory is writable. The STATUS.md was NOT validated." >&2
+    exit 0
+fi

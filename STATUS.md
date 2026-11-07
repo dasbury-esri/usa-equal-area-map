@@ -8,13 +8,24 @@ state: active
 health: green
 priority: 2
 next_action: "fix the drawer and check for dependency updates. update dependencies as appropriate"
-updated: 2026-11-04
+updated: 2026-11-06
 extra:
   agents: [copilot-enterprise]
   predecessor: usa-equal-area-map-proto
 ---
 
 # USA Equal Area Map
+
+## Local STATUS Validation
+
+The canonical version-aware validator, released v1/v2 schemas, shared-environment
+bootstrap and staged-content pre-commit hook are installed on this clone. The
+existing v2 STATUS passes; owner values are unchanged. Local authoring rules
+preserve v2 and its 400-character next-action limit. Setup is documented in
+`scripts/README.md`; the source gate passed 79 tests and installed hook bytes
+match the verified source. This tooling-only rollout stays on
+`experiment/vt-basemaps`; no main-branch change or application publication is
+authorized. See [session 0027](session-logs/2026-11-06-0027-session-log.md).
 
 ## Branch Cleanup
 
