@@ -16,16 +16,19 @@ extra:
 
 # USA Equal Area Map
 
-## Unpublished Airport Recentering Fix
+## Airport Recentering Release Candidate
 
 Local branch `fix/airport-zoom-recentering` starts directly from main and contains
 only the airport-recentering source repair, focused tests and supporting records.
 It restores fitted-home-to-airport interpolation while preserving manual pans,
 lazy panes and view recovery. No basemap experiment or dependency changes are
-included. Eight native browser cases and all 578 production chunk budgets pass.
-No push, merge or deployment is authorized. See
-[session 0024](session-logs/2026-11-04-0024-session-log.md) and [AGENTS.md](AGENTS.md).
-The owner's next_action is unchanged.
+included. A fresh Node 22 clean install, all eight native browser cases, focused
+lint, dependency resolution and all 578 production chunk budgets pass.
+The owner has explicitly authorized publishing only this repair; deployment
+and live verification are pending. See
+[session 0028](session-logs/2026-11-10-0028-session-log.md) for release evidence
+and [session 0024](session-logs/2026-11-04-0024-session-log.md) for provenance.
+The owner's next_action and tracking fields are unchanged.
 
 ## Local Development
 
