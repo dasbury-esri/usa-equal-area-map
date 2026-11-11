@@ -4,6 +4,51 @@
 - Recorded: 2026-11-04 09:29:49+00:00[UTC]
 - Scope: Unpublished `prototype/webmap-canvas`; no main merge or publication
 
+## Main-Layout Comparison Mode
+
+`layout=main` is an opt-in composition matching the standard published layout;
+the existing grid benchmark is unchanged. All seven panes are DOM regions over
+one WebGL2 canvas, without MapView, SceneView or drawer iframes. Scissor clears
+isolate overlapping panes. Closed drawer content is inert and not drawn or
+included in new query footprints. Opening a drawer refreshes missing geographic
+coverage through the existing guarded loading path, not through another context.
+
+The mode reuses `experiments/framing-placement.js`, verified identical to main,
+and the regional home/airport definitions. Its projected viewport uses the
+drawable client dimensions and measured ArcGIS scale conversion of 96 * 39.37,
+instead of the grid's exact inches-per-meter convention. The overview keeps
+its independent scale and 20-degree rotation during shared regional zooms.
+The prototype's owner-selected Alaska Albers meridian remains -154; main's
+-146 makes Alaska a known geographic comparison difference, not exact parity.
+The owner accepts the prototype projection for this version. That acceptance
+does not extend to rendering fidelity, which remains unresolved. The branch-only
+commit/push authorization and SDK reuse assessment are recorded in
+[session 0029](../../session-logs/2026-11-10-0029-session-log.md).
+
+Desktop left-drawer width is height * 2/3, capped to leave 60px; regional bands
+are 42% Alaska, 37% overview and 21% CNMI/Guam, American Samoa and Hawaii.
+PR/USVI starts at 79% height with the published clamped width. Opening/closing
+the left drawer or resizing reapplies responsive fitting, as in main. PR-only
+transitions do not reframe CONUS on desktop. Below 700px, only one drawer can
+open at once; this intentional portrait fallback differs from main's overlap.
+Portrait geographic composition is still not an acceptance target.
+
+Run `TEST_URL=http://127.0.0.1:5176/usa-equal-area-map/ node tests/webmap-canvas-browser.mjs --main-layout`.
+Both projections passed all three viewport sizes, native drawer controls,
+framebuffer pixel checks, no-overlap checks for narrow drawer handles, resize,
+programmatic airport zoom/manual-pan/recenter and independent one-context
+counting. At 1920x1080 Albers, an independent published-main read supplies scale
+references 17444538.24388772 and 81057512.0815336 for regional and overview views.
+The existing grid suite also passes native wheel/drag, pinch, symbols and swipe.
+Evidence, hashes and current local state are recorded in [STATUS](../../STATUS.md).
+
+This compares layout and supported rendering, not the complete ArcGIS display
+stack. Unsupported imagery, CIM symbols and renderer expressions remain refused.
+Projection/triangulation, outline and full-area fidelity remain separate gates.
+Locator-globe mode, overview extent/leader overlays, dual-unit scale bars, drawer
+animation and exact control artwork are not implemented by this mode. No source
+WebMap, runtime projection definitions, production app or dependency was changed.
+
 ## Web Mercator Tile Follow-Up
 
 [Session 0026](../../session-logs/2026-11-04-0026-session-log.md) extends

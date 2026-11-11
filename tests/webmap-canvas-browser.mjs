@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { chromium } from "playwright";
 
 export const itemIds = ["42430a34a2b44c0da678ce60ce20dd31", "bbda2d6bc77c495ab382e313f02888f1", "6100fd30484645e6b3ec7006d95aa7b8"];
@@ -63,6 +65,16 @@ export async function verifyMultiply(page) {
 async function run() {
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   try {
+    if (process.argv.includes("--main-layout")) {
+      const artifacts = mkdtempSync(join(tmpdir(), "usa-canvas-layout-"));
+      for (const projection of ["lambert", "albers"]) {
+        const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+        await verifyMainLayout(page, projection, artifacts);
+        await page.close();
+      }
+      console.log(`Layout evidence: ${artifacts}`);
+      return;
+    }
     const selectedIds = process.env.CANVAS_TEST_LAYERS?.split(",") ?? itemIds;
     const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
     await comparisonStyles(page);
@@ -101,6 +113,137 @@ async function run() {
     await verifySwipe(synthetic);
     await synthetic.close();
   } finally { await browser.close(); }
+}
+
+export async function verifyMainLayout(page, projection, artifacts) {
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.addInitScript(() => {
+    const known = new WeakSet();
+    window.layoutContextCount = 0;
+    for (const prototype of [HTMLCanvasElement.prototype, globalThis.OffscreenCanvas?.prototype].filter(Boolean)) {
+      const original = prototype.getContext;
+      prototype.getContext = function(type, ...args) {
+        const context = original.call(this, type, ...args);
+        if (["webgl", "webgl2", "experimental-webgl"].includes(type) && context && !known.has(context)) {
+          known.add(context); window.layoutContextCount++;
+        }
+        return context;
+      };
+    }
+  });
+  await page.goto(`${base}experiments/webmap-canvas/?layout=main&projection=${projection}&webmap=e46bd022bab240489506463e32fcc1bf`);
+  await page.waitForFunction(() => ["ready", "error"].includes(window.webmapCanvas?.status), null, { timeout: 180000 });
+  assert.equal(await page.evaluate(() => window.webmapCanvas.status), "ready");
+  const navigation = () => page.evaluate(() => ({ scale: window.webmapCanvas.renderer.scale,
+    center: [...window.webmapCanvas.renderer.panes[0].center] }));
+  const closed = await navigation();
+  await page.locator("#pr-drawer-toggle").click();
+  assert.deepEqual(await navigation(), closed, "PR opening must not reframe CONUS");
+  await page.locator("#pr-drawer-toggle").click();
+  assert.deepEqual(await navigation(), closed, "PR closure must not reframe CONUS");
+  await page.locator("#regional-drawer-toggle").click();
+  await page.locator("#pr-drawer-toggle").click();
+  await page.waitForFunction(() => !window.webmapCanvas.refreshing && window.webmapCanvas.refreshCount > 0, null, { timeout: 180000 });
+  await page.locator("#diagnostics details").evaluate(element => { element.open = false; });
+  await page.evaluate(() => { window.webmapCanvas.renderer.onNavigate = undefined; });
+  const rows = [];
+  for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 1600 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const row = await page.evaluate(() => {
+      const renderer = window.webmapCanvas.renderer;
+      renderer.draw();
+      const gl = renderer.gl;
+      const panes = renderer.panes.map(pane => {
+        if (pane.element.closest("[inert]")) return { id: pane.id, hidden: true };
+        const bounds = pane.element.getBoundingClientRect();
+        const width = Math.round(pane.element.clientWidth * devicePixelRatio);
+        const height = Math.round(pane.element.clientHeight * devicePixelRatio);
+        const pixels = new Uint8Array(width * height * 4);
+        gl.readPixels(Math.round((bounds.left + pane.element.clientLeft) * devicePixelRatio),
+          gl.drawingBufferHeight - Math.round((bounds.top + pane.element.clientTop) * devicePixelRatio) - height,
+          width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        let changed = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+          if (Math.abs(pixels[index] - 237) > 3 || Math.abs(pixels[index + 1] - 244) > 3) changed++;
+        }
+        const title = pane.element.querySelector("h2").getBoundingClientRect();
+        const button = pane.element.querySelector("button").getBoundingClientRect();
+        return { id: pane.id, width: pane.element.clientWidth, height: pane.element.clientHeight, changed,
+          controlsFit: pane.id === "overview" || (button.left >= bounds.left && button.right <= bounds.right
+            && (pane.id === "conus" || title.right <= button.left)), center: [...pane.center], scale: pane.scale ?? renderer.scale };
+      });
+      return { viewport: { width: innerWidth, height: innerHeight }, panes, contexts: window.getWebGLContextStats(),
+        independentlyCreated: window.layoutContextCount, error: gl.getError(), overflow: document.documentElement.scrollWidth > innerWidth,
+        rendered: renderer.layers.length };
+    });
+    assert.deepEqual(row.contexts, { live: 1, created: 1 });
+    assert.equal(row.independentlyCreated, 1);
+    assert.equal(row.error, 0);
+    assert.equal(row.overflow, false);
+    assert.equal(row.rendered, 4);
+    for (const pane of row.panes) {
+      if (pane.hidden) { assert.ok(viewport.width < 700); continue; }
+      assert.ok(pane.controlsFit, `${projection}/${viewport.width}/${pane.id}: control overlap`);
+      if (viewport.width >= 1920 || ["conus", "overview"].includes(pane.id)) {
+        assert.ok(pane.changed > 3, `${projection}/${viewport.width}/${pane.id}: blank pane`);
+      }
+    }
+    if (projection === "albers" && viewport.width === 1920) {
+      assert.ok(Math.abs(row.panes[0].scale - 17444538.24388772) < 0.01, "Published main shared-scale reference");
+      assert.ok(Math.abs(row.panes.find(pane => pane.id === "overview").scale - 81057512.0815336) < 0.01, "Published main overview-scale reference");
+    }
+    rows.push(row);
+    await page.screenshot({ path: join(artifacts, `${projection}-${viewport.width}.png`) });
+    if (viewport.width < 700) {
+      const handles = await page.locator(".drawer-toggle").evaluateAll(elements => elements.map(element => {
+        const bounds = element.getBoundingClientRect();
+        return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom };
+      }));
+      assert.ok(handles[0].right <= handles[1].left || handles[1].right <= handles[0].left
+        || handles[0].bottom <= handles[1].top || handles[1].bottom <= handles[0].top, "Mobile drawer handles overlap");
+      await page.locator("#pr-drawer-toggle").click();
+      assert.equal(await page.locator("#regional-drawer-toggle").getAttribute("aria-expanded"), "false");
+      assert.equal(await page.locator("#pr-drawer-toggle").getAttribute("aria-expanded"), "true");
+      await page.locator("#regional-drawer-toggle").click();
+      assert.equal(await page.locator("#pr-drawer-toggle").getAttribute("aria-expanded"), "false");
+    }
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const checks = await page.evaluate(() => {
+    const renderer = window.webmapCanvas.renderer;
+    const context = renderer.gl;
+    const overview = renderer.panes.find(pane => pane.id === "overview");
+    const originalOverview = { center: [...overview.center], scale: overview.scale };
+    renderer.zoom(renderer.panes[0], 500000 / renderer.scale, innerWidth / 2, innerHeight / 2);
+    const errors = renderer.panes.filter(pane => pane.airport).map(pane => Math.hypot(pane.center[0] - pane.airport[0], pane.center[1] - pane.airport[1]));
+    renderer.pan("hi", 30, -20);
+    const hawaii = renderer.panes.find(pane => pane.id === "hi");
+    const manual = [...hawaii.center];
+    renderer.zoom(renderer.panes[0], 2, innerWidth / 2, innerHeight / 2);
+    const manualRetained = manual.every((value, index) => value === hawaii.center[index]);
+    hawaii.element.querySelector("button").click();
+    const recenterError = Math.hypot(hawaii.center[0] - hawaii.airport[0], hawaii.center[1] - hawaii.airport[1]);
+    for (let index = 0; index < 4; index++) {
+      document.querySelector("#regional-drawer-toggle").click();
+      document.querySelector("#pr-drawer-toggle").click();
+    }
+    return { errors, manualRetained, recenterError, contextRetained: renderer.gl === context,
+      overviewRetained: JSON.stringify(originalOverview) === JSON.stringify({ center: overview.center, scale: overview.scale }),
+      contexts: window.getWebGLContextStats(), independentlyCreated: window.layoutContextCount };
+  });
+  assert.ok(checks.errors.every(error => error < 1e-6));
+  assert.equal(checks.manualRetained, true);
+  assert.ok(checks.recenterError < 1e-6);
+  assert.equal(checks.contextRetained, true);
+  assert.equal(checks.overviewRetained, true);
+  assert.deepEqual(checks.contexts, { live: 1, created: 1 });
+  assert.equal(checks.independentlyCreated, 1);
+  assert.deepEqual(errors, []);
+  writeFileSync(join(artifacts, `${projection}-results.json`), JSON.stringify({ rows, checks }, null, 2));
+  console.log(`PASS ${projection}: drawer states, desktop/mobile pixels, framing, airport zoom, manual pan, one retained context`);
 }
 
 export async function verifyRendering(page) {

@@ -13,6 +13,26 @@ import { createTileLoader, decodeTile, paneTiles, sourceProjection, tileCoordina
 import { PbfWriter } from "pbf";
 import { Worker as NodeWorker } from "node:worker_threads";
 import { preparationSnapshot } from "../experiments/webmap-canvas/preparation.js";
+import { mainFraming } from "../experiments/webmap-canvas/layout.js";
+import { albersBounds, lambertBounds, fitPlacement } from "../experiments/framing-placement.js";
+
+test("main layout uses the standard drawer order and published framing calculations", () => {
+  const options = parseOptions("?layout=main");
+  assert.deepEqual(options.panes, ["conus", "ak", "overview", "gu", "as", "hi", "pr"]);
+  assert.throws(() => parseOptions("?layout=unknown"), /Unknown layout/);
+  assert.throws(() => parseOptions("?layout=main&panes=conus"), /complete standard pane order/);
+  for (const [width, height] of [[1920, 1080], [2560, 1600], [390, 844]]) {
+    const drawerWidth = Math.min(height * 2 / 3, width - 60);
+    for (const albers of [false, true]) {
+      const bounds = albers ? albersBounds : lambertBounds;
+      assert.deepEqual(mainFraming(width, height, drawerWidth, drawerWidth, height * 0.42, true, albers),
+        fitPlacement({ width, height, drawerWidth, alaskaWidth: drawerWidth, alaskaHeight: height * 0.42 }, bounds));
+      const closed = mainFraming(width, height, drawerWidth, drawerWidth, height * 0.42, false, albers);
+      assert.ok((bounds.conus.xmax - bounds.conus.xmin) / closed.resolution <= width - 32 + 1e-8);
+      assert.ok((bounds.conus.ymax - bounds.conus.ymin) / closed.resolution <= height - 32 + 1e-8);
+    }
+  }
+});
 
 test("worker preparation matches inline mesh, bounds and budgets byte for byte", { timeout: 10000 }, async () => {
   const dataset = { opacity: 0.6, features: [{ attributes: {}, geometry: { type: "polygon",

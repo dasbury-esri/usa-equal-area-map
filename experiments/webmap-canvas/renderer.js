@@ -5,10 +5,11 @@ import { MIN_SCALE, MAX_SCALE, PANE_NAMES, resolveSwipe } from "./config.js";
 import { visibleAtScale } from "./data.js";
 import { prepareGeometry, visibleRanges } from "./geometry.js";
 import { GeometryPreparation } from "./preparation.js";
+import { connectMainLayout } from "./layout.js";
+import { metersPerPixel, paneBounds } from "./coverage.js";
 import { projectionGLSL, projectionParameters, projectChunkBounds, createProgram, setProjection } from "./projection.js";
 
-export const HOME_CENTERS = Object.freeze({ conus: [-97, 38], ak: [-159, 62], hi: [-157, 20.7], pr: [-66.2, 18.2], gu: [144.8, 13.45], as: [-170.7, -14.28] });
-const metersPerPixel = scale => scale * 0.0254 / 96;
+export const HOME_CENTERS = Object.freeze({ conus: [-97, 38], ak: [-159, 62], overview: [-140, 35], hi: [-157, 20.7], pr: [-66.2, 18.2], gu: [144.8, 13.45], as: [-170.7, -14.28] });
 
 const vertexSource = `#version 300 es
 precision highp float;
@@ -19,6 +20,7 @@ layout(location=2) in vec2 third;
 uniform vec2 uCenter;
 uniform vec2 uViewport;
 uniform float uResolution;
+uniform float uRotation;
 uniform int uMode;
 uniform float uWidth;
 uniform float uSize;
@@ -53,6 +55,8 @@ void main() {
       position = start + local;
     }
   }
+  float cosine = cos(uRotation), sine = sin(uRotation);
+  position = vec2(position.x * cosine + position.y * sine, -position.x * sine + position.y * cosine);
   gl_Position = vec4(position * 2.0 / uViewport, 0.0, 1.0);
 }
 `;
@@ -110,7 +114,7 @@ export class CanvasRenderer {
   uniform float uOpacity;
   out vec4 color;
   void main() { color = texelFetch(uLayer, ivec2(gl_FragCoord.xy), 0) * uOpacity; }`);
-    this.uniforms = Object.fromEntries(["uResolution", "uCenter", "uViewport", "uMode", "uWidth", "uSize", "uColor", "uOutline"]
+    this.uniforms = Object.fromEntries(["uResolution", "uRotation", "uCenter", "uViewport", "uMode", "uWidth", "uSize", "uColor", "uOutline"]
       .map(name => [name, this.gl.getUniformLocation(this.program, name)]));
     this.vao = this.gl.createVertexArray();
     this.panes = options.panes.map(id => {
@@ -119,8 +123,9 @@ export class CanvasRenderer {
         element: document.querySelector(`[data-pane="${id}"]`) };
     });
     canvas.addEventListener("webglcontextlost", () => report("Renderer", "WebGL context lost. Reload to restore rendering."));
-    this.observer = new ResizeObserver(() => { this.requestDraw(); this.onNavigate?.(); });
+    this.observer = new ResizeObserver(() => { this.onResize?.(); this.requestDraw(); this.onNavigate?.(); });
     this.panes.forEach(pane => { this.observer.observe(pane.element); this.bindPane(pane); });
+    if (options.layout === "main") this.layout = connectMainLayout(this);
   }
 
   async load(datasets, { isCurrent = () => true } = {}) {
@@ -169,6 +174,10 @@ export class CanvasRenderer {
     this.frame = requestAnimationFrame(() => { this.frame = null; this.draw(); });
   }
 
+  resolution(scale = this.scale) {
+    return metersPerPixel(scale, this.options.layout === "main" ? 39.37 : undefined);
+  }
+
   blendTarget(width, height) {
     const gl = this.gl;
     if (!this.layerTarget) this.layerTarget = { framebuffer: gl.createFramebuffer(), texture: gl.createTexture(), stencil: gl.createRenderbuffer() };
@@ -210,20 +219,26 @@ export class CanvasRenderer {
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     const location = name => this.uniforms[name];
-    gl.uniform1f(location("uResolution"), metersPerPixel(this.scale));
     for (const pane of this.panes) {
-      const bounds = pane.element.getBoundingClientRect();
+      const bounds = paneBounds(pane);
+      if (!bounds.width || !bounds.height || pane.element.hidden || pane.element.closest("[inert]")) continue;
+      const scale = pane.scale ?? this.scale;
+      const rotation = (pane.rotation ?? 0) * Math.PI / 180;
+      gl.uniform1f(location("uResolution"), this.resolution(scale));
+      gl.uniform1f(location("uRotation"), rotation);
       const rect = { x: Math.round(bounds.left * ratio), y: height - Math.round(bounds.bottom * ratio),
         width: Math.round(bounds.right * ratio) - Math.round(bounds.left * ratio), height: Math.round(bounds.bottom * ratio) - Math.round(bounds.top * ratio) };
       gl.viewport(rect.x, rect.y, rect.width, rect.height);
       gl.scissor(rect.x, rect.y, rect.width, rect.height);
+      gl.clearColor(0.929, 0.957, 0.961, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
       setProjection(gl, this.program, pane.parameters);
       gl.uniform2fv(location("uCenter"), pane.center);
       gl.uniform2f(location("uViewport"), bounds.width, bounds.height);
       const layers = this.swipePair ? [...this.layers.filter(layer => !this.swipePair.includes(layer.dataset)),
         ...this.swipePair.map(dataset => this.layers.find(layer => layer.dataset === dataset))] : this.layers;
       for (const layer of layers) {
-        if (!visibleAtScale(layer.dataset, this.scale)) continue;
+        if (!visibleAtScale(layer.dataset, scale)) continue;
         if (layer.dataset.paneId && layer.dataset.paneId !== pane.id) continue;
         const side = this.swipePair?.indexOf(layer.dataset) ?? -1;
         const split = Math.round(rect.width * this.swipeFraction);
@@ -233,9 +248,9 @@ export class CanvasRenderer {
         gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
         for (const draw of layer.draws) {
           if (!draw.count) continue;
-          const padding = ((draw.size ?? 0) + (draw.width ?? 0) + 4) * metersPerPixel(this.scale);
-          const halfWidth = bounds.width * 0.5 * metersPerPixel(this.scale) + padding;
-          const halfHeight = bounds.height * 0.5 * metersPerPixel(this.scale) + padding;
+          const padding = ((draw.size ?? 0) + (draw.width ?? 0) + 4) * this.resolution(scale);
+          const halfWidth = (bounds.width * Math.abs(Math.cos(rotation)) + bounds.height * Math.abs(Math.sin(rotation))) * 0.5 * this.resolution(scale) + padding;
+          const halfHeight = (bounds.height * Math.abs(Math.cos(rotation)) + bounds.width * Math.abs(Math.sin(rotation))) * 0.5 * this.resolution(scale) + padding;
           const viewport = [pane.center[0] - halfWidth, pane.center[1] - halfHeight,
             pane.center[0] + halfWidth, pane.center[1] + halfHeight];
           this.drawStats.availableInstances += draw.count;
@@ -290,7 +305,7 @@ export class CanvasRenderer {
   updateScaleBar(pane, bounds) {
     const output = pane.element.querySelector(".scale-bar");
     const maximum = Math.min(120, bounds.width - 20);
-    const resolution = metersPerPixel(this.scale);
+    const resolution = this.resolution(pane.scale ?? this.scale);
     const distance = width => {
       const startX = pane.id === "ak" ? bounds.width - 8 - width : 8;
       const projected = x => [pane.center[0] + (x - bounds.width / 2) * resolution,
@@ -316,20 +331,28 @@ export class CanvasRenderer {
   }
 
   zoom(pane, factor, clientX, clientY) {
-    const oldResolution = metersPerPixel(this.scale);
+    if (pane.id === "overview" && this.layout) return;
+    const oldResolution = this.resolution();
     this.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, this.scale * factor));
-    const difference = oldResolution - metersPerPixel(this.scale);
-    const bounds = pane.element.getBoundingClientRect();
+    const difference = oldResolution - this.resolution();
+    const bounds = paneBounds(pane);
     pane.center[0] += (clientX - bounds.left - bounds.width / 2) * difference;
     pane.center[1] -= (clientY - bounds.top - bounds.height / 2) * difference;
+    if (this.layout) {
+      for (const inset of this.panes.filter(value => value.airport)) {
+        inset.center = inset.manualCenter ? [...inset.manualCenter] : this.layout.centerAtScale(inset);
+      }
+    }
     this.requestDraw();
     this.onNavigate?.();
   }
 
   pan(id, deltaX, deltaY) {
     const pane = this.panes.find(value => value.id === id);
-    pane.center[0] -= deltaX * metersPerPixel(this.scale);
-    pane.center[1] += deltaY * metersPerPixel(this.scale);
+    if (pane.id === "overview" && this.layout) return;
+    pane.center[0] -= deltaX * this.resolution();
+    pane.center[1] += deltaY * this.resolution();
+    if (this.layout) pane.manualCenter = [...pane.center];
     this.requestDraw();
     this.onNavigate?.();
   }
@@ -387,7 +410,8 @@ export class CanvasRenderer {
     button.setAttribute("aria-label", `Recenter ${PANE_NAMES[pane.id]}`);
     button.disabled = false;
     button.addEventListener("click", () => {
-      pane.center = pane.parameters.converter.forward(HOME_CENTERS[pane.id]);
+      pane.manualCenter = null;
+      pane.center = this.layout ? this.layout.centerAtScale(pane) : pane.parameters.converter.forward(HOME_CENTERS[pane.id]);
       this.requestDraw(); this.onNavigate?.();
     });
     pane.element.addEventListener("wheel", event => {

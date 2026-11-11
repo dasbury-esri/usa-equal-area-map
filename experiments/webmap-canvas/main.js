@@ -6,6 +6,7 @@ import { loadFeatures } from "./data.js";
 import { CanvasRenderer } from "./renderer.js";
 import { generalizationForScale, needsRefresh, queryFootprint } from "./coverage.js";
 import "./style.css";
+import { createMainLayout } from "./layout.js";
 
 const status = document.querySelector("#status");
 const state = window.webmapCanvas = { status: "loading", errors: [], reports: [] };
@@ -43,6 +44,7 @@ try {
     pane.append(title, recenter, bar);
     panes.append(pane);
   }
+  if (options.layout === "main") createMainLayout();
   document.querySelector("#scale").textContent = `1:${Math.round(options.scale).toLocaleString("en-US")}`;
   if (!options.webmap && !options.layers.length && !options.tiles.length) {
     state.status = "waiting";

@@ -1,9 +1,18 @@
-export const metersPerPixel = scale => scale * 0.0254 / 96;
+export const metersPerPixel = (scale, inchesPerMeter = 1 / 0.0254) => scale / (96 * inchesPerMeter);
 export const generalizationForScale = scale => {
   const level = Math.floor(2 * Math.log2(scale / 1000000) + 1e-12);
   return metersPerPixel(1000000) * 0.5 / 111320 * 2 ** (level / 2);
 };
 const wrap = longitude => ((longitude + 180) % 360 + 360) % 360 - 180;
+
+export function paneBounds(pane) {
+  const bounds = pane.element.getBoundingClientRect();
+  const left = bounds.left + (pane.element.clientLeft ?? 0);
+  const top = bounds.top + (pane.element.clientTop ?? 0);
+  const width = pane.element.clientWidth ?? bounds.width;
+  const height = pane.element.clientHeight ?? bounds.height;
+  return { left, top, width, height, right: left + width, bottom: top + height };
+}
 
 export function needsRefresh(loaded, footprint, scale) {
   if (generalizationForScale(scale) < (loaded.generalization ?? generalizationForScale(loaded.scale))) return true;
@@ -23,16 +32,20 @@ export function splitBounds(west, south, east, north) {
 export function queryFootprint(panes, scale, margin = 0.25) {
   const boxes = [];
   for (const pane of panes) {
-    const bounds = pane.element.getBoundingClientRect();
-    const halfWidth = bounds.width * (0.5 + margin) * metersPerPixel(scale);
-    const halfHeight = bounds.height * (0.5 + margin) * metersPerPixel(scale);
+    const bounds = paneBounds(pane);
+    if (!bounds.width || !bounds.height || pane.element.closest?.("[inert]")) continue;
+    const halfWidth = bounds.width * (0.5 + margin) * metersPerPixel(pane.scale ?? scale, pane.inchesPerMeter);
+    const halfHeight = bounds.height * (0.5 + margin) * metersPerPixel(pane.scale ?? scale, pane.inchesPerMeter);
+    const rotation = (pane.rotation ?? 0) * Math.PI / 180;
     const reference = pane.parameters.converter.inverse(pane.center)[0];
     let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
     let invalid = false;
     for (let row = 0; row <= 16; row++) for (let column = 0; column <= 16; column++) {
+      const horizontal = halfWidth * (column / 8 - 1);
+      const vertical = halfHeight * (row / 8 - 1);
       const point = pane.parameters.converter.inverse([
-        pane.center[0] + halfWidth * (column / 8 - 1),
-        pane.center[1] + halfHeight * (row / 8 - 1),
+        pane.center[0] + horizontal * Math.cos(rotation) - vertical * Math.sin(rotation),
+        pane.center[1] + horizontal * Math.sin(rotation) + vertical * Math.cos(rotation),
       ]);
       if (!point?.every(Number.isFinite)) { invalid = true; continue; }
       const longitude = reference + wrap(point[0] - reference);

@@ -16,6 +16,44 @@ extra:
 
 # USA Equal Area Map
 
+## Local Main-Layout Comparison
+
+The single-canvas entry now accepts `layout=main`. It retains one WebGL2 context
+while arranging CONUS, the left regional drawer, its independent rotated
+overview and PR/USVI like published main. The existing grid remains the default.
+Shared framing helpers match main; drawable border dimensions and the measured
+MapView scale convention are used in comparison mode. Airport interpolation,
+manual-pan overrides and current-scale recentering are retained. Below 700px,
+drawers are mutually exclusive to keep controls accessible; desktop proportions
+are unchanged. Both drawers start closed, as in main.
+
+Native Chrome checks pass Lambert/Albers at 1920x1080, 2560x1600 and 390x844,
+including drawer states, nonblank pixels, resize, programmatic zoom/pan/recenter
+and independently counted single-context retention. The existing native grid
+suite, 30 Node contracts (one fixture-dependent area audit skipped), focused
+lint and all 653 build budgets pass. The Albers shared and overview scales at
+1920x1080 match an independent read of published main. This is not complete
+pixel-equivalence or StoryMaps embed acceptance.
+
+Open the [local comparison](http://127.0.0.1:5176/usa-equal-area-map/experiments/webmap-canvas/?webmap=e46bd022bab240489506463e32fcc1bf&projection=albers&layout=main).
+The owner WebMap is unchanged; unsupported imagery and CIM symbols remain
+explicitly reported. Inherited geometry limitations and the prototype's -154
+Alaska Albers meridian (main uses -146) remain. The owner accepts this Alaska
+projection for this version; rendering fidelity remains the outstanding priority.
+Locator-globe mode, overview
+extent/leader overlays, dual-unit scale bars and exact control artwork are not
+part of this layout pass. See [ADR-0002](docs/adr/ADR-0002-single-canvas-webmap-prototype.md).
+
+Screenshots, browser results and the build log are retained in the sibling
+[evidence directory](../usa-equal-area-map-evidence/canvas-main-layout-4yCJ97/).
+Run `shasum -a 256 -c SHA256SUMS` there to verify all nine files. Manifest SHA-256:
+`71f3aef4ee43b08ddf0307d79df7242930a42c4635c3271f350027bac59432c8`.
+The owner authorized committing and pushing this work only to
+`prototype/webmap-canvas`; no main merge or production publication is authorized.
+See [session 0029](session-logs/2026-11-10-0029-session-log.md) for verification,
+delivery scope and the SDK rendering-reuse assessment.
+Owner tracking fields and next_action are unchanged.
+
 ## Unpublished Single-Canvas Prototype
 
 Work is isolated on `prototype/webmap-canvas`, one commit per numbered step.
