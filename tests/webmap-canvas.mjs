@@ -474,7 +474,7 @@ test("culling skips offscreen chunks and merges adjacent visible ranges", () => 
   assert.deepEqual(visibleRanges(draw, "conus", [0, 0, 10, 10], false), [{ offset: 0, count: 12 }]);
 });
 
-test("holes use the smallest containing clockwise ring; orphan rings become outers", () => {
+test("union combines overlapping outers after hole assignment and preserves orphan rings", () => {
   const large = [[0, 0], [0, 10], [10, 10], [10, 0], [0, 0]];
   const small = [[2, 2], [2, 8], [8, 8], [8, 2], [2, 2]];
   const hole = [[3, 3], [4, 3], [4, 4], [3, 4], [3, 3]];
@@ -482,12 +482,12 @@ test("holes use the smallest containing clockwise ring; orphan rings become oute
   for (const rings of [[large, small, hole], [hole, small, large]]) {
     const diagnostics = { zeroAreaRings: 0, uncontainedHoles: 0 };
     const polygons = polygonParts([...rings, [], [[1, 1], [2, 2], [3, 3]], orphan], diagnostics);
-    assert.equal(polygons.length, 3);
-    assert.equal(polygons.find(polygon => polygon[0][0][0] === 2).length, 2);
+    assert.equal(polygons.length, 2);
     assert.equal(polygons.find(polygon => polygon[0][0][0] === 0).length, 1);
     const promoted = polygons.find(polygon => polygon[0][0][0] === 23);
     assert.equal(promoted.length, 1);
-    assert.deepEqual(promoted[0], densifyPath([...orphan].reverse()));
+    assert.equal(exactCoordinateArea(promoted), 1);
+    assert.equal(exactCoordinateArea(polygons.flat()), 101);
     assert.deepEqual(diagnostics, { zeroAreaRings: 2, uncontainedHoles: 1 });
   }
   const concave = [[0, 0], [0, 5], [2, 5], [2, 2], [5, 2], [5, 0], [0, 0]];
@@ -565,6 +565,33 @@ test("exact coordinate area is independent of triangulation, winding and ring or
   assert.equal(exactCoordinateArea([[...hole].reverse(), [...outer].reverse()]), 15);
   assert.equal(exactCoordinateArea([[[179, 0], [179, 1], [-179, 1], [-179, 0], [179, 0]]]), 2);
   assert.equal(exactCoordinateArea([[[0, 0], [1, 1], [2, 2]]]), 0);
+});
+
+test("polygon union cleans crossing and touching rings without filling holes or mutating input", () => {
+  const sharedVertices = [[-135.59221164211283, 68.46635824649658], [-135.56369026230686, 68.46635824649658]];
+  assert.deepEqual(continuousPath(sharedVertices), sharedVertices);
+  const cases = [
+    { rings: [[[0, 0], [2, 2], [0, 2], [2, 0], [0, 0]]], area: 2 },
+    { rings: [[[0, 0], [0, 2], [2, 2], [2, 0], [0, 0]], [[2, 0], [2, 2], [4, 2], [4, 0], [2, 0]]], area: 8 },
+    { rings: [[[0, 0], [0, 4], [4, 4], [4, 0], [0, 0]], [[0, 1], [2, 1], [2, 3], [0, 3], [0, 1]]], area: 12 },
+    { rings: [[[0, 0], [0, 4], [4, 4], [4, 0], [0, 0]], [[1, 1], [3, 1], [3, 3], [1, 3], [1, 1]]], area: 12 },
+  ];
+  for (const { rings, area } of cases) {
+    const original = structuredClone(rings);
+    const polygons = polygonParts(rings);
+    let triangleArea = 0;
+    for (const polygon of polygons) {
+      const { vertices, indices } = triangulate(polygon);
+      for (let index = 0; index < indices.length; index += 3) {
+        const [first, second, third] = indices.slice(index, index + 3).map(vertex => vertex * 2);
+        triangleArea += Math.abs((vertices[second] - vertices[first]) * (vertices[third + 1] - vertices[first + 1])
+          - (vertices[third] - vertices[first]) * (vertices[second + 1] - vertices[first + 1])) / 2;
+      }
+    }
+    assert.equal(exactCoordinateArea(polygons.flat()), area);
+    assert.equal(triangleArea, area);
+    assert.deepEqual(rings, original);
+  }
 });
 
 test("audit every triangulated feature against exact coordinate area", { skip: !process.env.CANVAS_AREA_FIXTURE }, () => {

@@ -1,4 +1,5 @@
 import earcut, { flatten } from "earcut";
+import polygonClipping from "polygon-clipping";
 import { rgba } from "./renderers.js";
 
 export const MAX_EDGE_DEGREES = 0.25;
@@ -11,7 +12,7 @@ export function continuousPath(path, reference = path[0]?.[0] ?? 0) {
   let previous = reference;
   return path.map(([longitude, latitude]) => {
     if (!Number.isFinite(longitude) || !Number.isFinite(latitude) || Math.abs(latitude) > 90) throw new Error("Invalid geographic coordinate");
-    previous += wrapDegrees(longitude - previous);
+    previous = longitude - 360 * Math.floor((longitude - previous + 180) / 360);
     return [previous, latitude];
   });
 }
@@ -46,9 +47,15 @@ export function polygonParts(rings, diagnostics = { zeroAreaRings: 0, uncontaine
       bounds[0] = Math.min(bounds[0], longitude); bounds[1] = Math.min(bounds[1], latitude);
       bounds[2] = Math.max(bounds[2], longitude); bounds[3] = Math.max(bounds[3], latitude);
     }
-    if (area === 0) { diagnostics.zeroAreaRings++; continue; }
+    if (area === 0) {
+      const direction = ring.find(point => point[0] !== origin[0] || point[1] !== origin[1]);
+      if (!direction || !ring.some(point => (direction[0] - origin[0]) * (point[1] - origin[1])
+        !== (direction[1] - origin[1]) * (point[0] - origin[0]))) {
+        diagnostics.zeroAreaRings++; continue;
+      }
+    }
     if (ring.at(-1)[0] !== origin[0] || ring.at(-1)[1] !== origin[1]) ring.push([...origin]);
-    if (area < 0) outers.push({ ring, bounds, area: -area, holes: [] });
+    if (area <= 0) outers.push({ ring, bounds, area: -area, holes: [] });
     else holes.push(ring);
   }
   const smallestFirst = [...outers].sort((first, second) => first.area - second.area);
@@ -62,7 +69,8 @@ export function polygonParts(rings, diagnostics = { zeroAreaRings: 0, uncontaine
       outers.push({ ring: hole.reverse(), holes: [] });
     }
   }
-  return outers.map(outer => [outer.ring, ...outer.holes].map(densifyPath));
+  const polygons = outers.map(outer => [outer.ring, ...outer.holes]);
+  return polygons.length ? polygonClipping.union(polygons).map(polygon => polygon.map(densifyPath)) : [];
 }
 
 function containsPoint(ring, longitude, latitude) {
