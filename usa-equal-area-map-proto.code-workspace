@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../usa-equal-area-map-proto"
+		},
+		{
+			"path": "."
+		},
+		{
+			"path": "../usa-equal-area-map-canvas"
+		}
+	],
+	"settings": {}
+}
