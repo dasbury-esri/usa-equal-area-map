@@ -65,6 +65,31 @@ export async function verifyMultiply(page) {
 async function run() {
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   try {
+    if (process.argv.includes("--stroke-performance")) {
+      assert.ok(process.env.CANVAS_BASELINE_URL, "Set CANVAS_BASELINE_URL to an isolated committed renderer server");
+      const artifacts = mkdtempSync(join(tmpdir(), "usa-canvas-stroke-performance-"));
+      await verifyStrokePerformance(browser, artifacts);
+      console.log(`Stroke performance evidence: ${artifacts}`);
+      return;
+    }
+    if (process.argv.includes("--stroke-fidelity")) {
+      const artifacts = mkdtempSync(join(tmpdir(), "usa-canvas-strokes-"));
+      for (const ratio of [1, 2]) {
+        const page = await browser.newPage({ viewport: { width: 512, height: 512 }, deviceScaleFactor: ratio });
+        await verifyStrokeFidelity(page, artifacts, ratio);
+        await page.close();
+      }
+      console.log(`Stroke evidence: ${artifacts}`);
+      return;
+    }
+    if (process.argv.includes("--city-symbols")) {
+      const artifacts = mkdtempSync(join(tmpdir(), "usa-canvas-city-symbols-"));
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      const previews = await verifyCitySymbols(page, artifacts);
+      await verifyCitySymbolReference(browser, previews, artifacts);
+      console.log(`City-symbol evidence: ${artifacts}`);
+      return;
+    }
     if (process.argv.includes("--main-layout")) {
       const artifacts = mkdtempSync(join(tmpdir(), "usa-canvas-layout-"));
       for (const projection of ["lambert", "albers"]) {
@@ -96,8 +121,8 @@ async function run() {
     if (districts) assert.equal(districts.positiveAleutianVertices, 0);
     assert.ok(result.contexts.live <= 1);
     if (process.argv.includes("--startup-check")) {
-      await verifyQuantization(page);
       await captureAreaBaseline(page);
+      await verifyQuantization(page);
       return;
     }
     if (process.argv.includes("--performance-only")) {
@@ -113,6 +138,315 @@ async function run() {
     await verifySwipe(synthetic);
     await synthetic.close();
   } finally { await browser.close(); }
+}
+
+async function verifyStrokePerformance(browser, artifacts) {
+  const results = [];
+  const regressions = [];
+  console.log(`Stroke performance evidence: ${artifacts}`);
+  for (const viewport of [{ width: 1920, height: 1080, ratio: 1 }, { width: 2560, height: 1600, ratio: 2 }, { width: 390, height: 844, ratio: 2 }]) {
+    for (const kind of ["baseline", "candidate", "candidate", "baseline"]) {
+      const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height }, deviceScaleFactor: viewport.ratio });
+      await page.addInitScript(() => {
+        const textures = new WeakMap(), allocations = new Map(), contexts = new WeakSet();
+        let nextTexture = 0;
+        window.strokeMetrics = { contexts: 0, allocations };
+        for (const prototype of [HTMLCanvasElement.prototype, globalThis.OffscreenCanvas?.prototype].filter(Boolean)) {
+          const original = prototype.getContext;
+          prototype.getContext = function(type, ...args) {
+            const context = original.call(this, type, ...args);
+            if (["webgl", "webgl2", "experimental-webgl"].includes(type) && context && !contexts.has(context)) {
+              contexts.add(context); window.strokeMetrics.contexts++;
+            }
+            return context;
+          };
+        }
+        const original = WebGL2RenderingContext.prototype.texImage2D;
+        WebGL2RenderingContext.prototype.texImage2D = function(...args) {
+          if (args.length === 9 && [this.R8, this.RGBA8].includes(args[2])) {
+            const texture = this.getParameter(this.TEXTURE_BINDING_2D);
+            if (!textures.has(texture)) textures.set(texture, ++nextTexture);
+            allocations.set(textures.get(texture), { format: args[2], width: args[3], height: args[4], bytes: args[3] * args[4] * (args[2] === this.R8 ? 1 : 4) });
+          }
+          return original.apply(this, args);
+        };
+      });
+      const url = kind === "baseline" ? process.env.CANVAS_BASELINE_URL : base;
+      await page.goto(`${url}experiments/webmap-canvas/?layout=main&projection=albers&webmap=e46bd022bab240489506463e32fcc1bf`);
+      await page.waitForFunction(() => window.webmapCanvas?.status === "ready", null, { timeout: 180000 });
+      await page.locator("#regional-drawer-toggle").click();
+      if (viewport.width >= 700) await page.locator("#pr-drawer-toggle").click();
+      await page.waitForFunction(() => !window.webmapCanvas.refreshing && window.webmapCanvas.refreshCount > 0, null, { timeout: 180000 });
+      const result = await page.evaluate(async () => {
+        const renderer = window.webmapCanvas.renderer, gl = renderer.gl;
+        renderer.onNavigate = undefined;
+        const bytes = new TextEncoder().encode(JSON.stringify(window.webmapCanvas.datasets.map(dataset => ({ title: dataset.title,
+          features: dataset.features.map(feature => ({ attributes: feature.attributes, geometry: feature.geometry.toJSON() })) }))));
+        const geometrySHA256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+        const center = [...renderer.panes[0].center], resolution = renderer.resolution();
+        const draw = [], intervals = [];
+        let previous;
+        for (let frame = 0; frame < 150; frame++) {
+          const timestamp = await new Promise(resolve => requestAnimationFrame(resolve));
+          renderer.panes[0].center = [center[0] + Math.sin(frame / 30) * 80 * resolution, center[1]];
+          const started = performance.now(); renderer.draw(); gl.finish();
+          if (frame >= 30) {
+            draw.push(performance.now() - started);
+            intervals.push(timestamp - previous);
+          }
+          previous = timestamp;
+        }
+        renderer.panes[0].center = center; renderer.draw();
+        const statistics = values => {
+          const sorted = values.slice().sort((first, second) => first - second);
+          return { median: sorted[Math.floor(sorted.length / 2)], p95: sorted[Math.ceil(sorted.length * 0.95) - 1] };
+        };
+        const debug = gl.getExtension("WEBGL_debug_renderer_info");
+        return { geometrySHA256, contexts: window.strokeMetrics.contexts, live: window.getWebGLContextStats(), error: gl.getError(),
+          browser: navigator.userAgent, gpu: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+          drawMs: statistics(draw), intervalMs: statistics(intervals),
+          samples: { draw, intervals },
+          strokeAllocations: [...window.strokeMetrics.allocations.values()].filter(allocation => allocation.format === gl.R8),
+          declaredBytes: renderer.strokeTarget?.bytes ?? 0 };
+      });
+      results.push({ kind, viewport, ...result });
+      writeFileSync(join(artifacts, "performance.json"), JSON.stringify(results, null, 2));
+      console.log(JSON.stringify({ kind, viewport, ...result, samples: undefined }));
+      assert.equal(result.contexts, 1);
+      assert.equal(result.live.live, 1);
+      assert.equal(result.error, 0);
+      if (kind === "candidate") {
+        assert.equal(result.strokeAllocations.length, 1);
+        assert.equal(result.strokeAllocations[0].bytes, viewport.width * viewport.height * viewport.ratio ** 2);
+        assert.equal(result.declaredBytes, result.strokeAllocations[0].bytes);
+        await page.screenshot({ path: join(artifacts, `${viewport.width}-${viewport.ratio}-${results.length}.png`) });
+        await page.evaluate(() => {
+          const target = window.webmapCanvas.renderer.strokeTarget;
+          window.originalStrokeObjects = { texture: target.texture, framebuffer: target.framebuffer };
+        });
+        const resized = { width: Math.floor(viewport.width / 2), height: Math.floor(viewport.height / 2) };
+        await page.setViewportSize(resized);
+        await page.waitForFunction(({ width, height }) => {
+          const target = window.webmapCanvas.renderer.strokeTarget;
+          return target.width === width * devicePixelRatio && target.height === height * devicePixelRatio;
+        }, resized);
+        const reuse = await page.evaluate(() => {
+          const renderer = window.webmapCanvas.renderer, target = renderer.strokeTarget;
+          return { sameTexture: target.texture === window.originalStrokeObjects.texture,
+            sameFramebuffer: target.framebuffer === window.originalStrokeObjects.framebuffer,
+            allocations: [...window.strokeMetrics.allocations.values()].filter(allocation => allocation.format === renderer.gl.R8),
+            contexts: window.strokeMetrics.contexts, error: renderer.gl.getError() };
+        });
+        results.at(-1).resize = reuse;
+        writeFileSync(join(artifacts, "performance.json"), JSON.stringify(results, null, 2));
+        assert.ok(reuse.sameTexture && reuse.sameFramebuffer);
+        assert.equal(reuse.allocations.length, 1);
+        assert.equal(reuse.allocations[0].bytes, resized.width * resized.height * viewport.ratio ** 2);
+        assert.equal(reuse.contexts, 1);
+        assert.equal(reuse.error, 0);
+      }
+      await page.close();
+    }
+    const group = results.slice(-4);
+    assert.equal(new Set(group.map(row => row.geometrySHA256)).size, 1, "Benchmark geometry differs");
+    const average = (kind, metric, statistic) => group.filter(row => row.kind === kind).reduce((sum, row) => sum + row[metric][statistic], 0) / 2;
+    for (const metric of ["drawMs", "intervalMs"]) {
+      if (average("candidate", metric, "median") > average("baseline", metric, "median") * 1.2 + 1)
+        regressions.push({ viewport, metric, statistic: "median", baseline: average("baseline", metric, "median"), candidate: average("candidate", metric, "median") });
+      if (average("candidate", metric, "p95") > average("baseline", metric, "p95") * 1.25 + 2)
+        regressions.push({ viewport, metric, statistic: "p95", baseline: average("baseline", metric, "p95"), candidate: average("candidate", metric, "p95") });
+    }
+  }
+  writeFileSync(join(artifacts, "regressions.json"), JSON.stringify(regressions, null, 2));
+  assert.deepEqual(regressions, [], "Border buffer failed performance acceptance");
+}
+
+async function verifyStrokeFidelity(page, artifacts, ratio) {
+  await page.goto(`${base}experiments/webmap-canvas/?panes=conus&prepare=inline&scale=1000000`);
+  await page.waitForFunction(() => window.webmapCanvas?.status === "waiting");
+  const rows = await page.evaluate(async () => {
+    const { CanvasRenderer } = await import("/usa-equal-area-map/experiments/webmap-canvas/renderer.js");
+    const renderer = new CanvasRenderer(document.querySelector("#map-canvas"), window.webmapCanvas.options, () => {});
+    const pane = renderer.panes[0], gl = renderer.gl;
+    Object.assign(pane.element.style, { position: "fixed", inset: "0", border: "0", width: "512px", height: "512px" });
+    const center = [...pane.center], resolution = renderer.resolution();
+    const rows = [];
+    for (const blendMode of ["normal", "multiply"]) for (const alpha of [1, 0.5])
+      for (const width of [0.25, 0.5, 1]) for (const split of [false, true]) {
+      const vertices = (split ? [-60, 0, 60] : [-60, 60]).map(offset => pane.parameters.converter.inverse([center[0] + offset * resolution, center[1]]));
+      const stroke = { type: "simple-line", style: "solid", color: [0, 0, 0, alpha], width };
+      const polygon = [...vertices, ...[60, -60].map(offset => pane.parameters.converter.inverse([center[0] + offset * resolution, center[1] - 50 * resolution])), vertices[0]];
+      const geometry = blendMode === "multiply" ? { type: "polygon", rings: [polygon] } : { type: "polyline", paths: [vertices] };
+      const symbol = blendMode === "multiply" ? { type: "simple-fill", style: "none", outline: stroke } : stroke;
+      await renderer.load([{ id: "stroke-probe", visible: true, opacity: 1, blendMode, ranges: [],
+        renderer: { symbolFor: () => symbol },
+        features: [{ attributes: {}, geometry }, { attributes: {}, geometry }] }]);
+      for (const phase of [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875]) {
+        pane.center = [center[0], center[1] + phase * resolution];
+        renderer.draw();
+        const ratio = devicePixelRatio, pixels = new Uint8Array(32 * ratio * 16 * ratio * 4);
+        gl.readPixels(240 * ratio, 248 * ratio, 32 * ratio, 16 * ratio, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        const background = pixels[0];
+        const columns = [];
+        for (let column = 0; column < 32 * ratio; column++) {
+          let ink = 0;
+          for (let row = 0; row < 16 * ratio; row++) ink += (background - pixels[(row * 32 * ratio + column) * 4]) / background;
+          columns.push(ink);
+        }
+        rows.push({ width, split, phase, blendMode, alpha, expected: width * 96 / 72 * ratio * alpha,
+          minimum: Math.min(...columns), maximum: Math.max(...columns), mean: columns.reduce((sum, ink) => sum + ink, 0) / columns.length,
+          error: gl.getError() });
+      }
+    }
+    return rows;
+  });
+  writeFileSync(join(artifacts, `strokes-dpr${ratio}.json`), JSON.stringify(rows, null, 2));
+  console.log(`Stroke DPR ${ratio}: ${artifacts}`, JSON.stringify({ cases: rows.length,
+    maximumRelativeMeanError: Math.max(...rows.map(row => Math.abs(row.mean - row.expected) / row.expected)),
+    minimumCoverageRatio: Math.min(...rows.map(row => row.minimum / row.expected)) }));
+  for (const row of rows) {
+    assert.equal(row.error, 0);
+    assert.ok(Math.abs(row.mean - row.expected) <= 0.15 * row.expected + 0.02, `Stroke coverage varies with pixel position: ${JSON.stringify(row)}`);
+    assert.ok(row.minimum >= 0.75 * row.expected, `Stroke has a gap: ${JSON.stringify(row)}`);
+  }
+}
+
+export async function verifyCitySymbols(page, artifacts) {
+  await page.addInitScript(() => {
+    const known = new WeakSet();
+    window.symbolContextCount = 0;
+    for (const prototype of [HTMLCanvasElement.prototype, globalThis.OffscreenCanvas?.prototype].filter(Boolean)) {
+      const original = prototype.getContext;
+      prototype.getContext = function(type, ...args) {
+        const context = original.call(this, type, ...args);
+        if (["webgl", "webgl2", "experimental-webgl"].includes(type) && context && !known.has(context)) {
+          known.add(context); window.symbolContextCount++;
+        }
+        return context;
+      };
+    }
+  });
+  await page.goto(`${base}experiments/webmap-canvas/?layout=main&projection=albers&webmap=e46bd022bab240489506463e32fcc1bf`);
+  await page.waitForFunction(() => ["ready", "error"].includes(window.webmapCanvas?.status), null, { timeout: 180000 });
+  assert.equal(await page.evaluate(() => window.webmapCanvas.status), "ready");
+  const result = await page.evaluate(async () => {
+    const before = window.symbolContextCount;
+    const root = new URL("../../node_modules/@arcgis/core/", location.href);
+    const { renderPreviewHTML } = await import(new URL("symbols/support/symbolUtils.js", root).href);
+    const { fromJSON } = await import(new URL("symbols/support/jsonUtils.js", root).href);
+    const layers = window.webmapCanvas.sources.layers.filter(layer => layer.renderer?.symbol?.type === "cim");
+    const rows = [];
+    for (const [index, layer] of layers.entries()) {
+      const source = layer.renderer.symbol.toJSON();
+      const element = await renderPreviewHTML(fromJSON(source), { scale: false });
+      if (!element) throw new Error(`No preview for ${layer.title}`);
+      element.id = `city-symbol-${index}`;
+      Object.assign(element.style, { position: "fixed", left: `${40 + index * 160}px`, top: "100px", zIndex: "1000", background: "white" });
+      document.body.append(element);
+      let canvas = element instanceof HTMLCanvasElement ? element : element.querySelector("canvas");
+      if (element instanceof HTMLImageElement) {
+        await element.decode();
+        canvas = document.createElement("canvas");
+        canvas.width = element.naturalWidth;
+        canvas.height = element.naturalHeight;
+        canvas.getContext("2d").drawImage(element, 0, 0);
+      }
+      if (!canvas) throw new Error(`Unsupported preview element: ${element.outerHTML}`);
+      const context = canvas.getContext("2d");
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let nonblank = 0;
+      for (let offset = 3; offset < pixels.length; offset += 4) if (pixels[offset]) nonblank++;
+      rows.push({ title: layer.title, renderer: layer.renderer.type, source, width: canvas.width, height: canvas.height,
+        cssWidth: element.getBoundingClientRect().width, cssHeight: element.getBoundingClientRect().height, nonblank,
+        png: canvas.toDataURL("image/png") });
+    }
+    return { before, after: window.symbolContextCount, contexts: window.getWebGLContextStats(), rows };
+  });
+  writeFileSync(join(artifacts, "preview-results.json"), JSON.stringify(result, null, 2));
+  await page.screenshot({ path: join(artifacts, "previews.png") });
+  console.log(JSON.stringify({ ...result, rows: result.rows.map(row => ({ title: row.title, renderer: row.renderer,
+    width: row.width, height: row.height, cssWidth: row.cssWidth, cssHeight: row.cssHeight, nonblank: row.nonblank })) }, null, 2));
+  assert.equal(result.before, 1);
+  assert.equal(result.after, 1, "Symbol previews created another WebGL context");
+  assert.equal(result.contexts.live, 1);
+  assert.equal(result.rows.length, 2, "Expected both owner-map city symbols");
+  for (const row of result.rows) assert.ok(row.nonblank > 0, `${row.title} preview is blank`);
+  return result;
+}
+
+async function verifyCitySymbolReference(browser, previews, artifacts) {
+  const page = await browser.newPage({ viewport: { width: 256, height: 256 } });
+  await page.goto(`${base}experiments/webmap-canvas/`);
+  const references = await page.evaluate(async rows => {
+    const root = new URL("../../node_modules/@arcgis/core/", location.href);
+    const load = async path => (await import(new URL(path, root).href)).default;
+    const [Map, MapView, Graphic, GraphicsLayer] = await Promise.all([
+      "Map.js", "views/MapView.js", "Graphic.js", "layers/GraphicsLayer.js",
+    ].map(load));
+    const { fromJSON } = await import(new URL("symbols/support/jsonUtils.js", root).href);
+    const host = document.createElement("div");
+    Object.assign(host.style, { position: "fixed", inset: "0", zIndex: "2000" });
+    document.body.append(host);
+    const layer = new GraphicsLayer();
+    const view = new MapView({ container: host, map: new Map({ basemap: null, layers: [layer] }),
+      center: [0, 0], scale: 1000000, spatialReference: { wkid: 3857 },
+      constraints: { snapToZoom: false }, ui: { components: [] }, background: { color: "white" } });
+    await view.when();
+    const { whenOnce } = await import(new URL("core/reactiveUtils.js", root).href);
+    const results = [];
+    const measure = pixels => {
+      let darkness = 0;
+      const bounds = [32, 32, -1, -1];
+      for (let offset = 0; offset < pixels.length; offset += 4) {
+        const weight = (765 - pixels[offset] - pixels[offset + 1] - pixels[offset + 2]) / 765;
+        darkness += weight;
+        if (weight > 0.02) {
+          const x = offset / 4 % 32, y = Math.floor(offset / 4 / 32);
+          bounds[0] = Math.min(bounds[0], x); bounds[1] = Math.min(bounds[1], y);
+          bounds[2] = Math.max(bounds[2], x); bounds[3] = Math.max(bounds[3], y);
+        }
+      }
+      return { darkness, bounds };
+    };
+    for (const row of rows) {
+      layer.removeAll();
+      layer.add(new Graphic({ geometry: { type: "point", x: 0, y: 0, spatialReference: { wkid: 3857 } }, symbol: fromJSON(row.source) }));
+      await whenOnce(() => !view.updating);
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const screenshot = await view.takeScreenshot({ width: 256, height: 256 });
+      const canvas = document.createElement("canvas"); canvas.width = canvas.height = 32;
+      const context = canvas.getContext("2d");
+      const image = new Image(); image.src = screenshot.dataUrl; await image.decode();
+      context.drawImage(image, 112, 112, 32, 32, 0, 0, 32, 32);
+      const nativePixels = context.getImageData(0, 0, 32, 32).data;
+      const native = { ...measure(nativePixels), png: canvas.toDataURL() };
+      const preview = new Image(); preview.src = row.png; await preview.decode();
+      const candidates = [];
+      for (const [mode, width, height, offset] of [["html-size", row.cssWidth, row.cssHeight, 0],
+        ["natural-size", row.width, row.height, 0], ["padded-origin", row.width, row.height, -0.5]]) {
+        context.fillStyle = "white"; context.fillRect(0, 0, 32, 32);
+        context.drawImage(preview, 16 - width / 2 + offset, 16 - height / 2 + offset, width, height);
+        const pixels = context.getImageData(0, 0, 32, 32).data;
+        let difference = 0;
+        for (let offset = 0; offset < pixels.length; offset++) if (offset % 4 !== 3) difference += Math.abs(pixels[offset] - nativePixels[offset]);
+        candidates.push({ mode, offset, ...measure(pixels), difference, png: canvas.toDataURL() });
+      }
+      results.push({ title: row.title, native, candidates });
+    }
+    view.destroy();
+    return results;
+  }, previews.rows);
+  writeFileSync(join(artifacts, "native-comparison.json"), JSON.stringify(references, null, 2));
+  for (const [index, row] of references.entries()) {
+    assert.ok(row.native.darkness > 0, "Native reference marker is blank");
+    writeFileSync(join(artifacts, `native-${index}.png`), Buffer.from(row.native.png.split(",")[1], "base64"));
+    for (const candidate of row.candidates) {
+      writeFileSync(join(artifacts, `${candidate.mode}-${index}.png`), Buffer.from(candidate.png.split(",")[1], "base64"));
+    }
+  }
+  console.log(JSON.stringify(references.map(row => ({ title: row.title, native: { ...row.native, png: undefined },
+    candidates: row.candidates.map(candidate => ({ ...candidate, png: undefined })) })), null, 2));
+  await page.close();
 }
 
 export async function verifyMainLayout(page, projection, artifacts) {

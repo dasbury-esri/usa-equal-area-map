@@ -4,6 +4,27 @@
 - Recorded: 2026-11-04 09:29:49+00:00[UTC]
 - Scope: Unpublished `prototype/webmap-canvas`; no main merge or publication
 
+## Outline Coverage Buffer Trial
+
+[Session 0030](../../session-logs/2026-11-10-0030-session-log.md) tested a
+single R8 texture in the existing WebGL2 context. Segment alpha coverage was
+combined with MAX blending, then composited once per stroke symbol group,
+including into existing multiply-layer targets. The reusable texture required
+one byte per physical canvas pixel, without another depth/stencil attachment.
+This is requested texture storage, not a physical GPU-memory measurement.
+
+All 384 sampled thin-border cases passed, but the same-geometry ABBA performance
+comparison repeatedly regressed at 2560x1600 DPR 2: median frame interval 16.7 ms
+to 33.3 ms, despite completed draw times near 2 ms. Skipping zero-coverage pixels
+did not recover cadence. The predeclared gate was not relaxed. One context and
+buffer reuse do not establish acceptable rendering cost.
+
+Decision: reject this implementation and restore the committed renderer exactly.
+Keep the test harness and externally archived candidate/measurements for future
+research; do not enable this method by default or behind a new app option.
+Border fidelity remains open, independently of land topology and SDK marker
+preview fidelity. No production change or dependency update was made.
+
 ## Main-Layout Comparison Mode
 
 `layout=main` is an opt-in composition matching the standard published layout;

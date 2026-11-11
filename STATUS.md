@@ -16,6 +16,89 @@ extra:
 
 # USA Equal Area Map
 
+## Border Buffer Trial: Not Accepted
+
+[Session 0030](session-logs/2026-11-10-0030-session-log.md) records the
+owner-authorized single-context R8 outline-coverage experiment. It passed all
+384 thin-border cases, including translucent, duplicate and multiply outlines.
+Independent interception verified one context and one texture/framebuffer pair
+reused on resize. Requested additional texture storage was 1.98 MiB at
+1920x1080 DPR 1, 15.63 MiB at 2560x1600 DPR 2, and 1.26 MiB at 390x844 DPR 2.
+These are texture payload sizes, not total physical GPU/driver memory.
+
+The identical-geometry ABBA comparison failed its predeclared performance gate:
+high-density desktop median frame interval increased from 16.7 to 33.3 ms.
+Skipping empty composite pixels did not recover it. The other two sizes remained
+at 16.7 ms. Completed draw timings alone did not reveal the cadence regression.
+The trial was rejected and renderer bytes restored exactly to `593ea85`.
+No additional buffer remains in the app; border defects remain unresolved.
+
+The reusable diagnostics, including `--stroke-performance`, are retained.
+That benchmark requires a separately served R8 candidate and committed baseline;
+its acceptance failure is intentional for the archived trial. Code, patch,
+raw timing samples, resize checks and screenshots are outside Git in
+[canvas-border-buffer-ZlBFOs](../usa-equal-area-map-evidence/canvas-border-buffer-ZlBFOs/).
+Its 28-file manifest SHA-256 is
+`a28c8ea5715ae28c212d0594fad7f75550056cf4b91975d2a38ab72950f49acc`.
+Verify with `shasum -a 256 -c SHA256SUMS` there. Restored native grid/layout,
+30 Node tests (one optional area audit skipped), lint and 653 build budgets pass.
+This delivery is diagnostics/documentation on the prototype branch only; no
+production publication, source geometry repair or city-marker integration.
+
+## Rendering Diagnostics Follow-Up
+
+Retained diagnostics exercise the owner's two actual CIM city
+symbols with the SDK's public `renderPreviewHTML` helper. Both produce nonblank
+7x7 PNGs while independent interception remains at one created WebGL context
+and the app reports one live context. The helper's 5x5 HTML display size shrinks
+the markers. A separate native MapView reference has a 6x6 nonwhite footprint;
+the natural PNG with a half-pixel origin adjustment matches that footprint but
+not every edge pixel (integrated darkness 19.541 versus 18.533 at DPR 1).
+This establishes image-generation/context feasibility, not integrated marker
+fidelity across scales, pixel densities or geographic positions. No city symbols
+were enabled in the application and no new renderer dependency was added.
+
+A new thin-border pixel test reproduces disappearing lines and inconsistent
+opacity at fractional pixel positions. A stable edge-width calculation and
+depth-selected maximum-coverage trial passed the normal-blending DPR 1/2 cases,
+but broader translucent/duplicate/multiply-outline cases exposed gaps. A depth
+bias repair still failed. The trial renderer changes were removed, with exact
+byte equality to committed `593ea85` independently verified. Earlier narrow
+passes do not establish a delivered border fix. Performance was not accepted;
+no extra rendering pass remains in the application.
+
+The fresh independent area audit processed 976 features (392 world, 144
+US/outlying, 440 districts) and reported 29 differences above 0.1%. Its 31 Node
+tests completing without skips means the report ran, not that those features
+passed fidelity. These are new inputs, not the historical 962-feature fixture.
+The unchanged coordinate check also fails for district OBJECTID 88: one sampled
+axis difference is 0.015300 degrees against requested tolerance 0.026890 and the
+test's 0.51-tolerance bound. For US/outlying FID 5433, native `isSimple` is false;
+raw ring area is 0.008677004 square degrees, native simplified area 0.007953920,
+and the current cleanup area 0.008315462. Source-topology interpretation is not
+resolved by choosing whichever repair passes the existing algebraic area check.
+No source geometry or service was changed.
+
+Reproduce the probes with `TEST_URL=http://127.0.0.1:5176/usa-equal-area-map/`
+and `node tests/webmap-canvas-browser.mjs --city-symbols` or
+`node tests/webmap-canvas-browser.mjs --stroke-fidelity`. The latter intentionally
+fails against the current renderer. `--startup-check` now retains the area
+fixture before its unchanged coordinate gate. The diagnostic harness passes
+focused lint; native grid and owner-layout checks passed during the trial, but
+those broad checks did not detect the newly isolated multiply-border failure.
+
+All 23 raw files are retained in
+[canvas-rendering-sJ1KSJ](../usa-equal-area-map-evidence/canvas-rendering-sJ1KSJ/).
+Verify with `shasum -a 256 -c SHA256SUMS` there; manifest SHA-256 is
+`7ba44717522e39f30d8569fec3600c2fdd555b6b895e239c758af40e2fc6377a`.
+The frozen geometry hash is
+`228477cfd8fb9bf3279e2efc50ba96d3d718b412a7f87a28ec5f7c468516eeed`.
+The proposed separate outline-coverage texture was evaluated and rejected in
+session 0030 above. Both the depth and R8 trials are paused. Comparing invalid
+quantized land with unquantized source/native display remains a separate next
+investigation; no repair is selected. Owner frontmatter and next_action are
+unchanged. These earlier diagnostics are included in the branch-only closeout.
+
 ## Local Main-Layout Comparison
 
 The single-canvas entry now accepts `layout=main`. It retains one WebGL2 context
