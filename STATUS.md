@@ -16,16 +16,20 @@ extra:
 
 # USA Equal Area Map
 
-## Airport Recentering Release Candidate
+## Published Airport Recentering Repair
 
-Local branch `fix/airport-zoom-recentering` starts directly from main and contains
-only the airport-recentering source repair, focused tests and supporting records.
-It restores fitted-home-to-airport interpolation while preserving manual pans,
-lazy panes and view recovery. No basemap experiment or dependency changes are
-included. A fresh Node 22 clean install, all eight native browser cases, focused
-lint, dependency resolution and all 578 production chunk budgets pass.
-The owner has explicitly authorized publishing only this repair; deployment
-and live verification are pending. See
+Published with explicit owner approval at
+2026-11-10 16:00:29-08:00[America/Los_Angeles], commit
+`b047839e140597018cd1c9b113a075cf1f462bd4`. Main was fast-forwarded to the isolated
+airport repair, focused tests and supporting records. Fitted-home-to-airport
+interpolation now preserves manual pans, lazy panes and view recovery. No basemap
+experiment, single-canvas implementation or dependency changes were included.
+
+A fresh Node 22 clean install, all eight native browser cases, focused lint,
+dependency resolution and all 578 production chunk budgets pass.
+[Pages run 42927729485](https://github.com/dasbury-esri/usa-equal-area-map/actions/runs/42927729485)
+and deployment 7697683098 succeeded. Both live HTML entry points, both main
+JavaScript bundles and CSS match the tested build byte-for-byte. See
 [session 0028](session-logs/2026-11-10-0028-session-log.md) for release evidence
 and [session 0024](session-logs/2026-11-04-0024-session-log.md) for provenance.
 The owner's next_action and tracking fields are unchanged.
